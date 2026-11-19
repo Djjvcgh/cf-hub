@@ -39,5 +39,8 @@ test('deploy uses relative directories, active environments and generated config
 
   await write(work, '.env.local', 'export CLOUDFLARE_API_BASE_URL="https://example.com"');
   assert.throws(() => checkWrangler(account, ['deploy'], work), /\.env\.local 设置了 CLOUDFLARE_API_BASE_URL/);
+
+  await write(work, '.env.local', 'CLOUDFLARE_API_HEADERS=fixture');
+  assert.throws(() => checkWrangler(account, ['d1', 'list'], work), /\.env\.local 设置了 CLOUDFLARE_API_HEADERS/);
   assert.throws(() => checkWrangler(account, ['whoami', '--profile', 'other'], work), /--profile/);
 });
