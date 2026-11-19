@@ -1,0 +1,11 @@
+{
+  "name": "cf-hub",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local Cloudflare account dashboard and Wrangler launcher",
+  "type": "module",
+  "bin": { "cf-hub": "bin/cf-hub.js" },
+  "engines": { "node": ">=24.5.0" },
+  "scripts": { "test": "node --test" },
+  "dependencies": { "wrangler": "4.164.0" }
+}
