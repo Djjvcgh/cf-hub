@@ -13,6 +13,10 @@ let refreshSequence = 0;
 const refreshEvery = 60_000;
 const numberFormat = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 3 });
 
+if (document.body.hasAttribute('data-browser-session')) {
+  new EventSource('/api/ui-session');
+}
+
 function element(tag, text, className) {
   const node = document.createElement(tag);
   if (text !== undefined) node.textContent = text;

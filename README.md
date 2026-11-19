@@ -6,10 +6,12 @@
 
 准备 [Node.js 24 LTS](https://nodejs.org/en/about/previous-releases)，在 cf-hub 项目目录执行 `npm install && npm link`。如果 PowerShell 不支持 `&&`，分两行执行，等 `npm install` 成功后再执行 `npm link`。
 
+**Windows 快捷启动**：双击根目录的 [cf-hub.bat](cf-hub.bat)。默认浏览器会打开看板，启动窗口随即退出。关闭最后一个看板标签页后，本地看板约 5 秒后停止。快捷启动优先用 `127.0.0.1:3456`，端口占用时会自动选一个可用的本地端口。
+
 ## 第一次使用
 
-1. 按下文创建 Cloudflare API Token。运行 `cf-hub ui`，打开 `http://127.0.0.1:3456`，点击「添加账号」，填写账号名称、Account ID 和 Token。校验通过后保存到 `~/.cf-hub/accounts.json`，以后关着看板也能用。
-2. 在终端按 `Ctrl+C` 关掉看板。切到任意业务项目目录执行 `cf-hub list` 和 `cf-hub status`。给 Agent 使用时可执行 `cf-hub status --json`。
+1. 按下文创建 Cloudflare API Token。双击 `cf-hub.bat` 或运行 `cf-hub ui`，在打开的看板点「添加账号」，填写账号名称、Account ID 和 Token。校验通过后保存到 `~/.cf-hub/accounts.json`，以后关着看板也能用。
+2. 双击脚本启动的看板可直接关闭标签页。用 `cf-hub ui` 启动时，在对应终端按 `Ctrl+C` 退出。切到任意业务项目目录执行 `cf-hub list` 和 `cf-hub status`。给 Agent 使用时可执行 `cf-hub status --json`。
 3. 确认项目和账号后，运行 `cf-hub run '我的 Cloudflare 账号' -- deploy` 部署 Workers，或运行 `cf-hub run '我的 Cloudflare 账号' -- pages deploy ./dist` 部署 Pages。把示例名称换成看板里显示的账号名称。
 
 想先看看界面，可以跑 `cf-hub ui --demo`。表单修改随演示关闭而清除。想先验证 Workers 配置，可以在业务项目里运行 `cf-hub run '我的 Cloudflare 账号' -- deploy --dry-run --outdir ./cf-hub-dry-run`，查看本地打包结果。

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { once } from 'node:events';
 import { mkdir, mkdtemp, readFile, rm, rmdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -243,4 +244,23 @@ test('dashboard writes require the local session and verified credentials', asyn
   assert.equal((await store.read())[0].apiToken, first.apiToken);
   assert.equal((await patch('DELETE', newName)).status, 200);
   assert.deepEqual(await store.read(), []);
+});
+
+test('browser-session dashboard stops when the last dashboard tab disconnects', { timeout: 10_000 }, async t => {
+  const { url, server } = await startDashboard({ port: 0, open: false, browserSession: true });
+  t.after(() => {
+    server.close();
+    server.closeAllConnections();
+  });
+  const closed = once(server, 'close');
+  const headers = { 'Sec-Fetch-Site': 'same-origin', Accept: 'text/event-stream' };
+  const page = await fetch(url);
+  assert.match(await page.text(), /<body data-browser-session>/);
+  assert.equal((await fetch(`${url}/api/ui-session`)).status, 403);
+  const tab = new AbortController();
+  const stream = await fetch(`${url}/api/ui-session`, { headers, signal: tab.signal });
+  assert.equal(stream.headers.get('content-type'), 'text/event-stream');
+  tab.abort();
+  await closed;
+  assert.equal(server.listening, false);
 });

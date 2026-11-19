@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import { once } from 'node:events';
 import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { accountRecord, findAccount, InputError, normalizeAccountName, publicAccount } from './accounts.js';
@@ -43,13 +44,13 @@ async function jsonBody(req) {
   throw new HttpError(400, '表单格式无效。');
 }
 
-function openBrowser(url) {
+export async function openBrowser(url) {
   const [program, ...args] = process.platform === 'win32'
     ? ['explorer.exe', url]
     : process.platform === 'darwin' ? ['open', url] : ['xdg-open', url];
   const browser = spawn(program, args, { detached: true, stdio: 'ignore', windowsHide: true });
-  browser.on('error', () => console.error(`请在浏览器中打开 ${url}`));
   browser.unref();
+  await once(browser, 'spawn');
 }
 
 export function demoDashboard() {
@@ -101,8 +102,15 @@ export function demoDashboard() {
   };
 }
 
-export async function startDashboard({ store, status, validate, port = 3456, open = true }) {
+export async function startDashboard({ store, status, validate, port = 3456, open = true, browserSession = false }) {
   const session = randomBytes(32).toString('hex');
+  let tabs = 0;
+  let idleTimer;
+
+  function closeWhenIdle(delay) {
+    idleTimer = setTimeout(() => server.close(), delay).unref();
+  }
+
   const server = createServer(async (req, res) => {
     const host = `127.0.0.1:${server.address().port}`;
     if (req.headers.host !== host) return send(res, 403, { error: '请使用本机看板地址。' });
@@ -112,7 +120,26 @@ export async function startDashboard({ store, status, validate, port = 3456, ope
       if (req.method === 'GET' && path === '/favicon.ico') return res.writeHead(204).end();
       if (req.method === 'GET' && asset) {
         const [file, type] = asset;
-        return send(res, 200, await readFile(new URL(`../public/${file}`, import.meta.url)), type);
+        const body = await readFile(new URL(`../public/${file}`, import.meta.url), 'utf8');
+        return send(res, 200, browserSession && file === 'index.html'
+          ? body.replace('<body>', '<body data-browser-session>') : body, type);
+      }
+      if (browserSession && req.method === 'GET' && path === '/api/ui-session') {
+        if (req.headers['sec-fetch-site'] !== 'same-origin' || req.headers.accept !== 'text/event-stream') {
+          return send(res, 403, { error: '请从本地看板打开。' });
+        }
+        clearTimeout(idleTimer);
+        tabs += 1;
+        res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' });
+        res.write(': connected\n\n');
+        const keepAlive = setInterval(() => res.write(': keep-alive\n\n'), 20_000).unref();
+        res.once('close', () => {
+          clearInterval(keepAlive);
+          tabs -= 1;
+          // A short grace period lets the browser reconnect on refresh.
+          if (tabs === 0) closeWhenIdle(5_000);
+        });
+        return;
       }
       if (req.method === 'GET' && path === '/api/accounts') {
         return send(res, 200, { session, accounts: (await store.read()).map(account => ({ ...publicAccount(account), hasToken: true })) });
@@ -154,10 +181,16 @@ export async function startDashboard({ store, status, validate, port = 3456, ope
     server.once('error', reject);
     server.listen(port, '127.0.0.1', resolve);
   }).catch(error => {
-    if (error.code === 'EADDRINUSE') throw new Error(`本地端口 ${port} 被占用，请结束之前启动的看板后重试。`);
+    if (error.code === 'EADDRINUSE') {
+      error.message = `本地端口 ${port} 被占用，请结束之前启动的看板后重试。`;
+    }
     throw error;
   });
   const url = `http://127.0.0.1:${server.address().port}`;
-  if (open) openBrowser(url);
+  if (browserSession) {
+    closeWhenIdle(60_000);
+    server.once('close', () => clearTimeout(idleTimer));
+  }
+  if (open) void openBrowser(url).catch(() => console.error(`请在浏览器中打开 ${url}`));
   return { server, url };
 }
