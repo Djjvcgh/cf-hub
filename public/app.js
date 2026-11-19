@@ -1,7 +1,7 @@
 import { rankWorkers } from './quotas.js';
 
 const select = selector => document.querySelector(selector);
-const grid = select('#accounts');
+const tbody = select('#accounts');
 const feedback = select('#feedback');
 const refresh = select('#refresh');
 const editor = select('#editor');
@@ -11,15 +11,20 @@ const commandDialog = select('#command-dialog');
 const commandForm = select('#command-form');
 const directoryField = select('#build-directory');
 const preview = select('#command-preview');
+const drawer = select('#detail');
 let commandAccount;
 const fields = form.elements;
 let session;
 let editing;
-const cards = new Map();
+let selected;
+const rows = new Map();
 let demo = false;
 let refreshSequence = 0;
 const refreshEvery = 60_000;
+const warnAt = 60;
+const highAt = 80;
 const numberFormat = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 3 });
+const svg = 'http://www.w3.org/2000/svg';
 
 if (document.body.hasAttribute('data-browser-session')) {
   new EventSource('/api/ui-session');
@@ -126,131 +131,308 @@ function format(number) {
   return number === null ? '未知' : numberFormat.format(number);
 }
 
-function quotaValue({ used, freeLimit }, unit = '') {
-  return `${format(used)} / ${format(freeLimit)}${unit ? ` ${unit}` : ''}`;
+function level(percent) {
+  if (percent === null || percent === undefined) return 'unknown';
+  return percent >= highAt ? 'high' : percent >= warnAt ? 'warn' : 'ok';
 }
 
-function usageGroup(title, rows) {
-  const section = element('section', undefined, 'quota-group');
-  const list = element('dl');
-  for (const [label, value, error] of rows) {
-    const row = element('div', undefined, 'quota-row');
-    const detail = element('dd', value);
-    if (error) detail.append(element('small', error));
-    row.append(element('dt', label), detail);
-    list.append(row);
-  }
-  section.append(element('h3', title), list);
-  return section;
+function percentText(percent) {
+  if (percent === null || percent === undefined) return '未知';
+  if (percent > 0 && percent < 1) return '<1%';
+  return `${Math.floor(percent)}%`;
 }
 
-function moreUsage({ d1, kv, workersAi, r2 }, errors) {
-  const details = element('details', undefined, 'more-usage');
-  const daily = element('div', undefined, 'quota-grid');
-  daily.append(
-    usageGroup('D1', [
-      ['读取', quotaValue(d1.rowsRead, '行'), errors.d1RowsRead],
-      ['写入', quotaValue(d1.rowsWritten, '行'), errors.d1RowsWritten],
-    ]),
-    usageGroup('Workers KV', [
-      ['读取', quotaValue(kv.reads), errors.kvReads],
-      ['写入', quotaValue(kv.writes), errors.kvWrites],
-      ['删除', quotaValue(kv.deletes), errors.kvDeletes],
-      ['列表', quotaValue(kv.lists), errors.kvLists],
-    ]),
-    usageGroup('Workers AI', [['用量', quotaValue(workersAi.neurons, 'Neurons'), errors.workersAi]]),
-  );
+function item(label, { used, freeLimit }, error, unit = '') {
+  return { label, used, limit: freeLimit, unit, error, percent: used === null ? null : used / freeLimit * 100 };
+}
+
+// 把一份账号报告整理成五组用量，每组若干项，每项带百分比
+function usageGroups(report) {
+  const { requests, d1, kv, workersAi, r2 } = report.usage.quotas;
+  const errors = Object.fromEntries(report.errors.map(({ section, message }) => [section, message]));
+  const overlap = requests.percent === null && requests.workers !== null && requests.pagesFunctions !== null
+    ? '目前无法确认两项统计是否重叠。' : undefined;
   const storageGb = r2.storagePeakBytes === null ? null : r2.storagePeakBytes / 1e9;
-  const storage = storageGb === null ? '未知' : `${storageGb > 0 && storageGb < 0.001 ? '< 0.001' : format(storageGb)} GB`;
-  const r2Section = usageGroup('R2 Standard', [
-    ['A 类操作', quotaValue(r2.classA), errors.r2Operations],
-    ['B 类操作', quotaValue(r2.classB)],
-    ['今日各桶峰值合计', storage, errors.r2Storage],
-  ]);
-  const r2Window = element('p', `${r2.window.start.slice(0, 7)} UTC 日历月操作估算，账单按订阅周期计算。`, 'hint');
-  r2Section.querySelector('h3').after(r2Window);
-  if (r2.unclassifiedOperations > 0) {
-    r2Section.append(element('p', `另有 ${format(r2.unclassifiedOperations)} 次操作待归类。`, 'hint'));
-  }
-  const r2Pricing = element('a', 'R2 免费额度');
-  r2Pricing.href = 'https://developers.cloudflare.com/r2/pricing/#free-tier';
-  r2Pricing.target = '_blank';
-  r2Pricing.rel = 'noopener noreferrer';
-  const storageNote = element('p', `存储免费基准 ${r2.storageFreeLimitGbMonths} GB-month / 月 · `, 'hint');
-  storageNote.append(r2Pricing);
-  r2Section.append(storageNote);
-  details.append(
-    element('summary', '更多用量'),
-    daily,
-    element('p', 'KV 显示统计次数，批量操作按键计费。', 'hint'),
-    r2Section,
-  );
-  return details;
+  return [
+    { key: 'requests', title: '共享请求', items: [
+      { label: 'Workers + Pages Functions', used: requests.used, limit: requests.freeLimit, unit: '次', percent: requests.percent,
+        error: errors.workersUsage || errors.pagesFunctions || overlap },
+    ], requests, errors },
+    { key: 'd1', title: 'D1', items: [
+      item('读取', d1.rowsRead, errors.d1RowsRead, '行'),
+      item('写入', d1.rowsWritten, errors.d1RowsWritten, '行'),
+    ] },
+    { key: 'kv', title: 'Workers KV', short: 'KV', items: [
+      item('读取', kv.reads, errors.kvReads),
+      item('写入', kv.writes, errors.kvWrites),
+      item('删除', kv.deletes, errors.kvDeletes),
+      item('列表', kv.lists, errors.kvLists),
+    ] },
+    { key: 'ai', title: 'Workers AI', items: [item('Neurons', workersAi.neurons, errors.workersAi)] },
+    { key: 'r2', title: 'R2 Standard', short: 'R2', items: [
+      item('A 类操作', r2.classA, errors.r2Operations),
+      item('B 类操作', r2.classB, errors.r2Operations),
+      { label: '存储峰值', used: storageGb, limit: r2.storageFreeLimitGbMonths, unit: 'GB', error: errors.r2Storage,
+        percent: storageGb === null ? null : storageGb / r2.storageFreeLimitGbMonths * 100 },
+    ], r2 },
+  ];
 }
 
-function renderUsage(container, account) {
-  const expanded = container.querySelector('.more-usage')?.open;
-  const { requests } = account.usage.quotas;
-  const usage = element('div', undefined, 'usage');
-  const usageTop = element('div', undefined, 'usage-top');
-  const errors = Object.fromEntries(account.errors.map(({ section, message }) => [section, message]));
-  const { percent } = requests;
-  usageTop.append(element('span', '今日共享请求额度'), element('strong', quotaValue(requests)));
-  const track = element('progress', undefined, `track ${percent === null ? 'unknown' : percent >= 90 ? 'high' : percent >= 70 ? 'warn' : ''}`);
-  track.max = 100;
-  track.value = Math.max(0, Math.min(100, percent ?? 0));
-  track.setAttribute('aria-label', percent === null ? '合计未知' : `免费额度基准 ${format(percent)}%`);
-  usage.append(usageTop, track);
-  if (percent !== null) usage.append(element('p', `已统计 ${format(percent)}%`, 'hint'));
-  const requestSources = usageGroup('请求来源', [
-    ['Workers', format(requests.workers), errors.workersUsage],
-    ['Pages Functions', format(requests.pagesFunctions), errors.pagesFunctions],
-  ]);
-  requestSources.classList.add('request-sources');
-  usage.append(requestSources);
-  if (percent === null && requests.workers !== null && requests.pagesFunctions !== null) {
-    usage.append(element('p', '目前无法确认两项统计是否重叠。', 'hint'));
-  }
-  usage.append(element('p', 'Workflows 也可能占用这份额度。', 'hint'));
-  const details = moreUsage(account.usage.quotas, errors);
-  details.dataset.account = account.name;
-  details.open = Boolean(expanded);
-
-  const projects = element('div', undefined, 'projects');
-  projects.append(projectList('Workers', account.workers, errors.workers), projectList('Pages', account.pages, errors.pages));
-  container.replaceChildren(usage, details, projects);
+function worstOf(items) {
+  return items.filter(entry => entry.percent !== null).reduce((top, entry) => (!top || entry.percent > top.percent ? entry : top), null);
 }
 
-function createCard(account) {
-  const wrapper = element('article', undefined, 'card');
-  const heading = element('div', undefined, 'card-top');
-  const edit = element('button', '编辑');
-  edit.setAttribute('aria-label', `编辑 ${account.name}`);
-  edit.addEventListener('click', () => openEditor(account));
-  heading.append(element('h2', account.name), edit);
-  const notice = element('p', '', 'hint card-status');
-  notice.setAttribute('role', 'status');
-  const content = element('div');
+function summarize(report) {
+  const groups = usageGroups(report);
+  let worst = null;
+  for (const group of groups) {
+    group.worst = worstOf(group.items);
+    group.partial = group.items.some(entry => entry.percent === null);
+    if (group.worst && (!worst || group.worst.percent > worst.item.percent)) worst = { group, item: group.worst };
+  }
+  return { groups, worst };
+}
+
+function pill(percent, title) {
+  const node = element('span', percentText(percent), `pill ${level(percent)}`);
+  if (title) node.title = title;
+  return node;
+}
+
+function createRow(account) {
+  const tr = element('tr');
+  const nameCell = element('th');
+  nameCell.scope = 'row';
+  const open = element('button', undefined, 'row-name');
+  const dot = element('i', undefined, 'dot unknown');
+  const name = element('span', account.name, 'name');
+  const status = element('span', '', 'row-status');
+  status.setAttribute('role', 'status');
+  open.append(dot, name, status);
+  open.setAttribute('aria-label', `查看 ${account.name} 的详情`);
+  open.addEventListener('click', event => { event.stopPropagation(); openDetail(account.name); });
+  nameCell.append(open);
+  const cells = ['requests', 'd1', 'kv', 'ai', 'r2', 'projects'].map(key => element('td', undefined, key === 'projects' ? 'project-col' : undefined));
+  tr.append(nameCell, ...cells);
+  tr.addEventListener('click', () => openDetail(account.name));
+  return { tr, dot, status, cells, account, name: account.name, accountId: account.accountId };
+}
+
+function renderRow(row) {
+  const report = row.shown;
+  row.tr.classList.toggle('selected', selected === row.name);
+  row.tr.classList.toggle('failed', !report && row.error !== undefined);
+  if (!report) {
+    row.dot.className = 'dot unknown';
+    for (const cell of row.cells) cell.replaceChildren(element('span', row.error === undefined ? '…' : '—', 'placeholder'));
+    return;
+  }
+  const { groups, worst } = summarize(report);
+  row.dot.className = `dot ${level(row.latest ? worst?.item.percent : null)}`;
+  groups.forEach((group, index) => {
+    const cell = row.cells[index];
+    const top = group.worst;
+    const reasons = group.items.filter(entry => entry.error).map(entry => `${entry.label}：${entry.error}`).join('\n');
+    const content = [pill(top?.percent ?? null, reasons || undefined)];
+    if (top && group.items.length > 1) content.push(element('small', top.label + (group.partial ? ' · 部分未知' : '')));
+    else if (!top && reasons) content.push(element('small', '查看原因'));
+    cell.replaceChildren(...content);
+  });
+  const count = list => list === null ? '?' : list.length;
+  row.cells[5].replaceChildren(element('span', `Workers ${count(report.workers)}`, 'projects-count'), element('span', `Pages ${count(report.pages)}`, 'projects-count'));
+}
+
+function setRowStatus(row, text, error = false) {
+  row.status.textContent = text;
+  row.status.classList.toggle('error', error);
+  if (selected === row.name) message(select('#detail-status'), text, error);
+}
+
+function meter(percent) {
+  const track = element('div', undefined, `track ${level(percent)}`);
+  const fill = element('span');
+  fill.style.width = `${Math.max(0, Math.min(100, percent ?? 0))}%`;
+  track.append(fill);
+  return track;
+}
+
+function ring(percent) {
+  const radius = 34;
+  const length = 2 * Math.PI * radius;
+  const node = document.createElementNS(svg, 'svg');
+  node.setAttribute('viewBox', '0 0 88 88');
+  node.setAttribute('class', `ring ${level(percent)}`);
+  node.setAttribute('aria-hidden', 'true');
+  for (const name of ['base', 'value']) {
+    const circle = document.createElementNS(svg, 'circle');
+    circle.setAttribute('cx', '44');
+    circle.setAttribute('cy', '44');
+    circle.setAttribute('r', String(radius));
+    circle.setAttribute('class', name);
+    if (name === 'value') {
+      circle.setAttribute('stroke-dasharray', `${length * Math.min(100, percent ?? 0) / 100} ${length}`);
+      circle.setAttribute('transform', 'rotate(-90 44 44)');
+    }
+    node.append(circle);
+  }
+  const label = document.createElementNS(svg, 'text');
+  label.setAttribute('x', '44');
+  label.setAttribute('y', '50');
+  label.setAttribute('text-anchor', 'middle');
+  label.textContent = percentText(percent);
+  node.append(label);
+  return node;
+}
+
+function quotaLine(entry) {
+  const line = element('div', undefined, 'quota-line');
+  const head = element('div', undefined, 'quota-head');
+  const value = entry.used === null ? '未知' : `${format(entry.used)} / ${format(entry.limit)}${entry.unit ? ` ${entry.unit}` : ''}`;
+  head.append(element('span', entry.label), element('span', value, 'quota-value'), element('strong', entry.percent === null ? '' : percentText(entry.percent), `quota-percent ${level(entry.percent)}`));
+  line.append(head, meter(entry.percent));
+  if (entry.error) line.append(element('p', entry.error, 'hint error-hint'));
+  return line;
+}
+
+function link(text, href) {
+  const node = element('a', text);
+  node.href = href;
+  node.target = '_blank';
+  node.rel = 'noopener noreferrer';
+  return node;
+}
+
+function renderDetail() {
+  const row = rows.get(selected);
+  if (!row) return closeDetail();
+  select('#detail-title').textContent = row.name;
+  message(select('#detail-status'), row.status.textContent, row.status.classList.contains('error'));
+  const body = select('#detail-body');
+  const scroll = body.scrollTop;
+  const parts = [];
+  const report = row.shown;
+  if (report) {
+    const { groups, worst } = summarize(report);
+    const hero = element('section', undefined, 'hero');
+    const text = element('div');
+    if (worst) {
+      text.append(
+        element('p', '最紧张的一项', 'hint'),
+        element('strong', worst.group.items.length > 1 ? `${worst.group.title} · ${worst.item.label}` : worst.group.title),
+        element('p', `${format(worst.item.used)} / ${format(worst.item.limit)}${worst.item.unit ? ` ${worst.item.unit}` : ''}`, 'hero-value'),
+      );
+    } else text.append(element('strong', '暂时没有可用的用量统计'));
+    hero.append(ring(worst?.item.percent ?? null), text);
+    parts.push(hero);
+    for (const group of groups) {
+      const section = element('section', undefined, 'detail-group');
+      section.append(element('h3', group.title), ...group.items.map(quotaLine));
+      if (group.key === 'requests') {
+        const { requests, errors } = group;
+        section.append(element('p', `来源：Workers ${format(requests.workers)}${errors.workersUsage ? '（未知）' : ''} · Pages Functions ${format(requests.pagesFunctions)}${errors.pagesFunctions ? '（未知）' : ''}`, 'hint'));
+        section.append(element('p', 'Workflows 也可能占用这份额度。', 'hint'));
+      }
+      if (group.key === 'kv') section.append(element('p', 'KV 显示统计次数，批量操作按键计费。', 'hint'));
+      if (group.key === 'r2') {
+        const { r2 } = group;
+        section.append(element('p', `${r2.window.start.slice(0, 7)} UTC 日历月操作估算，账单按订阅周期计算。`, 'hint'));
+        if (r2.unclassifiedOperations > 0) section.append(element('p', `另有 ${format(r2.unclassifiedOperations)} 次操作待归类。`, 'hint'));
+        const note = element('p', `存储按今日各桶峰值合计，对照每月 ${r2.storageFreeLimitGbMonths} GB-month 免费基准估算 · `, 'hint');
+        note.append(link('R2 免费额度', 'https://developers.cloudflare.com/r2/pricing/#free-tier'));
+        section.append(note);
+      }
+      parts.push(section);
+    }
+    const errors = Object.fromEntries(report.errors.map(({ section, message }) => [section, message]));
+    const projects = element('section', undefined, 'projects');
+    projects.append(projectList('Workers', report.workers, errors.workers), projectList('Pages', report.pages, errors.pages));
+    parts.push(projects);
+  } else {
+    parts.push(element('p', row.error === undefined ? '正在查询这个账号…' : '这个账号这次没查到结果，可以稍后点「刷新」再试。', 'empty-detail'));
+  }
   const commands = element('div', undefined, 'command-actions');
   for (const product of ['Workers', 'Pages']) {
-    const button = element('button', `复制 ${product} 部署命令`);
-    button.addEventListener('click', () => openCommand(account, product === 'Pages'));
+    const button = element('button', `复制 ${product} 部署命令`, product === 'Workers' ? 'primary' : undefined);
+    button.addEventListener('click', () => openCommand(row.account, product === 'Pages'));
     commands.append(button);
   }
-  wrapper.append(heading, notice, content, commands);
-  return { wrapper, notice, content, accountId: account.accountId, name: account.name };
+  parts.push(commands);
+  body.replaceChildren(...parts);
+  body.scrollTop = scroll;
 }
 
-function sortCards() {
-  const rows = [...cards.values()];
-  const reports = rows.filter(row => row.latest).map(row => row.latest);
-  const scores = select('#sort').value === 'workers'
-    ? new Map(rankWorkers(reports).map(entry => [entry.name, entry.requests]))
-    : new Map(reports.map(account => [account.name, account.usage.quotas.requests.used]));
-  rows.sort((a, b) => (scores.get(a.name) ?? Infinity) - (scores.get(b.name) ?? Infinity) || a.name.localeCompare(b.name));
-  rows.forEach(({ wrapper }, index) => {
-    if (grid.children[index] !== wrapper) grid.insertBefore(wrapper, grid.children[index] ?? null);
+function openDetail(name) {
+  const previous = selected;
+  selected = name;
+  for (const row of rows.values()) row.tr.classList.toggle('selected', row.name === name);
+  renderDetail();
+  if (previous !== name) select('#detail-body').scrollTop = 0;
+  drawer.classList.add('open');
+  drawer.inert = false;
+  document.body.classList.add('drawer-open');
+}
+
+function closeDetail() {
+  selected = undefined;
+  drawer.classList.remove('open');
+  drawer.inert = true;
+  document.body.classList.remove('drawer-open');
+  for (const row of rows.values()) row.tr.classList.remove('selected');
+}
+
+function score(row, mode, workerRanks) {
+  const report = row.latest;
+  if (!report) return null;
+  if (mode === 'workers') return workerRanks.get(row.name) ?? null;
+  if (mode === 'shared') return report.usage.quotas.requests.used;
+  const { groups, worst } = summarize(report);
+  const percent = worst?.item.percent ?? null;
+  if (percent === null) return null;
+  if (mode === 'tight') return -percent;
+  // 有未知项的账号排在完整账号之后，避免缺权限显得余量多
+  return groups.some(group => group.partial) ? 1e6 + percent : percent;
+}
+
+function sortRows() {
+  const list = [...rows.values()];
+  const mode = select('#sort').value;
+  const workerRanks = new Map(rankWorkers(list.filter(row => row.latest).map(row => row.latest)).map(entry => [entry.name, entry.requests]));
+  const scores = new Map(list.map(row => [row.name, score(row, mode, workerRanks)]));
+  list.sort((a, b) => (scores.get(a.name) ?? Infinity) - (scores.get(b.name) ?? Infinity) || a.name.localeCompare(b.name));
+  list.forEach(({ tr }, index) => {
+    if (tbody.children[index] !== tr) tbody.insertBefore(tr, tbody.children[index] ?? null);
   });
+}
+
+function renderOverview() {
+  const box = select('#overview');
+  const list = [...rows.values()];
+  if (!list.length) return box.replaceChildren();
+  const counts = { high: 0, warn: 0, ok: 0, unknown: 0 };
+  let roomiest = null;
+  for (const row of list) {
+    const summary = row.latest ? summarize(row.latest) : null;
+    const worst = summary?.worst;
+    counts[level(worst?.item.percent ?? null)] += 1;
+    // 有未知项的账号不推荐，避免把缺权限误当成余量多
+    const complete = summary && !summary.groups.some(group => group.partial);
+    if (complete && worst && (!roomiest || worst.item.percent < roomiest.percent)) roomiest = { name: row.name, percent: worst.item.percent };
+  }
+  const chip = (className, label, value) => {
+    const node = element('div', undefined, `chip ${className}`);
+    node.append(element('strong', String(value)), element('span', label));
+    return node;
+  };
+  const chips = [chip('high', '个告急（80% 以上）', counts.high), chip('warn', '个偏高（60%–80%）', counts.warn), chip('ok', '个充裕', counts.ok)];
+  if (counts.unknown) chips.push(chip('unknown', '个未查到', counts.unknown));
+  if (roomiest) {
+    const pick = element('button', undefined, 'chip pick');
+    pick.type = 'button';
+    pick.append(element('span', '余量最多'), element('strong', roomiest.name), element('span', `最紧张一项 ${percentText(roomiest.percent)}`));
+    pick.addEventListener('click', () => openDetail(roomiest.name));
+    chips.push(pick);
+  }
+  box.replaceChildren(...chips);
 }
 
 async function load({ background = false } = {}) {
@@ -265,40 +447,57 @@ async function load({ background = false } = {}) {
     select('#demo').hidden = !demo;
     const { accounts } = directory;
     const ids = new Map(accounts.map(account => [account.name, account.accountId]));
-    for (const [name, row] of cards) {
+    for (const [name, row] of rows) {
       if (ids.get(name) !== row.accountId) {
-        row.wrapper.remove();
-        cards.delete(name);
+        row.tr.remove();
+        rows.delete(name);
       }
     }
-    grid.querySelector('.empty')?.remove();
-    if (!accounts.length) grid.append(element('p', '还没有账号，点击「添加账号」开始。', 'card empty'));
-    select('#summary').textContent = `${accounts.length} 个账号 · 每日用量从北京时间 08:00 起算${accounts.length && !demo ? ' · 每分钟自动查询' : ''}`;
+    if (selected && !rows.has(selected) && !ids.has(selected)) closeDetail();
+    tbody.querySelector('.empty')?.remove();
+    if (!accounts.length) {
+      const tr = element('tr', undefined, 'empty');
+      const td = element('td', '还没有账号，点击「添加账号」开始。');
+      td.colSpan = 7;
+      tr.append(td);
+      tbody.append(tr);
+    }
+    select('#summary').textContent = `${accounts.length} 个账号${accounts.length && !demo ? ' · 每分钟自动查询' : ''}`;
     message(feedback, '');
     await Promise.all(accounts.map(async account => {
-      let row = cards.get(account.name);
+      let row = rows.get(account.name);
       if (!row) {
-        row = createCard(account);
-        cards.set(account.name, row);
-        grid.append(row.wrapper);
+        row = createRow(account);
+        rows.set(account.name, row);
+        tbody.append(row.tr);
+        renderRow(row);
       }
-      const last = row.time ? ` · 上次查询 ${row.time}` : '';
-      message(row.notice, '查询中…' + last);
+      row.account = account;
+      const last = row.time ? ` · 上次 ${row.time}` : '';
+      setRowStatus(row, '查询中…' + last);
+      if (selected === row.name) renderDetail();
       try {
         const result = await api(`/api/status/${encodeURIComponent(account.name)}?at=${encodeURIComponent(directory.queryTime)}`);
         if (sequence !== refreshSequence) return;
         if (result.account.accountId !== row.accountId || result.account.name !== row.name) throw new Error('账号已变更，请刷新列表。');
-        renderUsage(row.content, result.account);
         row.latest = result.account;
-        row.time = new Date(result.window.end).toLocaleString('zh-CN', { hour12: false });
-        message(row.notice, `查询于 ${row.time}`);
+        row.shown = result.account;
+        row.error = undefined;
+        row.time = new Date(result.window.end).toLocaleTimeString('zh-CN', { hour12: false });
+        setRowStatus(row, `查询于 ${row.time}`);
       } catch (error) {
         if (sequence !== refreshSequence) return;
         row.latest = null;
-        message(row.notice, error.message + last, true);
+        row.error = error.message;
+        setRowStatus(row, error.message + last, true);
       }
+      renderRow(row);
+      if (selected === row.name) renderDetail();
     }));
-    if (sequence === refreshSequence) sortCards();
+    if (sequence === refreshSequence) {
+      sortRows();
+      renderOverview();
+    }
   } catch (error) {
     if (sequence === refreshSequence) message(feedback, error.message, true);
   } finally {
@@ -308,9 +507,14 @@ async function load({ background = false } = {}) {
 
 select('#add').addEventListener('click', () => openEditor());
 select('#close-editor').addEventListener('click', () => editor.close());
+select('#close-detail').addEventListener('click', closeDetail);
+select('#detail-edit').addEventListener('click', () => { const row = rows.get(selected); if (row) openEditor(row.account); });
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && selected && !document.querySelector('dialog[open]')) closeDetail();
+});
 editor.addEventListener('close', () => { fields.apiToken.value = ''; });
 refresh.addEventListener('click', () => load());
-select('#sort').addEventListener('change', () => { if (!refresh.disabled) sortCards(); });
+select('#sort').addEventListener('change', () => { if (!refresh.disabled) sortRows(); });
 select('#close-command').addEventListener('click', () => commandDialog.close());
 directoryField.addEventListener('input', updateCommand);
 commandForm.addEventListener('submit', async event => {
@@ -328,8 +532,10 @@ form.addEventListener('submit', async event => {
   submit.disabled = true;
   message(select('#form-error'), '');
   try {
+    const name = fields.name.value.trim();
     await mutate(editing ? 'PATCH' : 'POST', editing, Object.fromEntries(new FormData(form)));
     editor.close();
+    if (editing && selected === editing) selected = name;
     await load();
   } catch (error) {
     message(select('#form-error'), error.message, true);
@@ -347,6 +553,7 @@ confirmDelete.addEventListener('close', async () => {
   try {
     await mutate('DELETE', editing);
     editor.close();
+    if (selected === editing) closeDetail();
     await load();
   } catch (error) {
     message(select('#form-error'), error.message, true);

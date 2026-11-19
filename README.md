@@ -16,9 +16,9 @@
 
 想先看看界面，可以跑 `cf-hub ui --demo`。表单修改随演示关闭而清除。想先验证 Workers 配置，可以在业务项目里运行 `cf-hub run '我的 Cloudflare 账号' -- deploy --dry-run --outdir ./cf-hub-dry-run`，查看本地打包结果。
 
-卡片标题和终端命令用同一个账号名称，支持中文和空格。已有的短别名仍可以调用原账号，旧备注可作为迁移后的名称。
+看板里的账号名和终端命令用同一个账号名称，支持中文和空格。已有的短别名仍可以调用原账号，旧备注可作为迁移后的名称。
 
-在账号卡片上点「复制 Workers 部署命令」或「复制 Pages 部署命令」。Pages 需要填写实际构建目录，例如 `./dist`。核对完整命令再点「复制命令」，到业务项目目录使用。Windows 上粘贴到 PowerShell，目录里有空格或单引号也可以直接复制。
+在看板点一行账号打开右侧详情，点「复制 Workers 部署命令」或「复制 Pages 部署命令」。Pages 需要填写实际构建目录，例如 `./dist`。核对完整命令再点「复制命令」，到业务项目目录使用。Windows 上粘贴到 PowerShell，目录里有空格或单引号也可以直接复制。
 
 ## 申请 API Token
 
@@ -43,11 +43,11 @@
 
 ## 看用量
 
-每日用量从 UTC 零点起算，也就是北京时间早上 8 点。Workers 和 Pages Functions 在统计可相加时共用一条 100,000 次的进度条，Workflows 也可能占用该额度。展开「更多用量」可看 D1、KV、Workers AI 和 R2。R2 操作按 UTC 日历月估算，今日存储峰值用 GB 显示，10 GB-month 是按账单周期计算的免费基准。页面底部的「其他免费服务」列出产品额度和官方入口。 [Pages Functions 额度](https://developers.cloudflare.com/pages/functions/pricing/#free-plan) · [R2 计费](https://developers.cloudflare.com/r2/pricing/)
+每日用量从 UTC 零点起算，也就是北京时间早上 8 点。Workers 和 Pages Functions 在统计可相加时共用一条 100,000 次的进度条，Workflows 也可能占用该额度。表格同时列出 D1、KV、Workers AI 和 R2。R2 操作按 UTC 日历月估算，今日存储峰值用 GB 显示，10 GB-month 是按账单周期计算的免费基准。页面底部的「其他免费服务」列出产品额度和官方入口。 [Pages Functions 额度](https://developers.cloudflare.com/pages/functions/pricing/#free-plan) · [R2 计费](https://developers.cloudflare.com/r2/pricing/)
 
 看板打开且页面可见时，每分钟查一次，也可以点「刷新」立刻查。查询只读取 Cloudflare 的统计，Workers 请求数由实际访问产生。Cloudflare 汇总用量可能延迟几分钟。Worker 访问地址最多复用两分钟的查询结果。[Workers 统计说明](https://developers.cloudflare.com/workers/observability/metrics-and-analytics/#requests)
 
-打开看板后会先看到本地账号，项目和用量查完一张显示一张。刷新时可以继续查看上次结果和查询时间。默认按 Workers 请求排序，想比较卡片上的进度条，可选「已统计共享请求从少到多」。每轮查完才调整位置，未知的排在末尾。
+打开看板后会先看到本地账号，每行查完就显示一行。表格每格是该产品里用得最多的一项，低于 60% 为绿，60% 到 80% 为黄，80% 以上为红，灰色表示未知。点一行可在右侧看全部分项用量和项目。刷新时可以继续查看上次结果和查询时间。默认把最紧张的账号排前面。部署前挑账号可选「余量最多的排前面」，也可以按 Workers 请求或共享请求排序。每轮查完才调整位置，未知的排在末尾。
 
 ## 常见问题
 

@@ -58,15 +58,21 @@ export async function openBrowser(url) {
 }
 
 export function demoDashboard() {
-  let accounts = [
-    { name: '个人站点与轻量服务', accountId: '1'.repeat(32), apiToken: 'demo' },
-    { name: '实验项目与预览环境', accountId: '2'.repeat(32), apiToken: 'demo' },
-    { name: '独立测试账号', accountId: '3'.repeat(32), apiToken: 'demo' },
-  ];
-  const counts = [24680, 78640, null];
-  const examples = [
-    { workers: [{ name: 'edge-router', urls: [] }, { name: 'image-cache', urls: [] }], pages: [{ name: 'portfolio', urls: [] }] },
-    { workers: [{ name: 'preview-api', urls: [] }], pages: [{ name: 'docs-preview', urls: [] }, { name: 'playground', urls: [] }] },
+  const names = ['个人站点与轻量服务', '实验项目与预览环境', '独立测试账号', '博客主站', '图床服务', 'AI 助手', '客户 A 官网', '客户 B 小程序后端', '客户 C 数据看板', '备用账号'];
+  let accounts = names.map((name, index) => ({ name, accountId: (index + 1).toString(16).repeat(32), apiToken: 'demo' }));
+  const project = name => ({ name, urls: [] });
+  // 每个演示账号的用量：[Workers, Pages Functions, D1 读, D1 写, KV 读/写/删/列, Neurons, R2 A/B, R2 存储字节]
+  const profiles = [
+    { usage: [24680, 65_000, 410_000, 1_520, [3_400, 48, 0, 0], 3_245, [580, 2_900], 1_240_000_000], workers: ['edge-router', 'image-cache'], pages: ['portfolio'] },
+    { usage: [78640, 0, 0, 0, [0, 0, 0, 0], 0, [0, 0], 0], workers: ['preview-api'], pages: ['docs-preview', 'playground'] },
+    null,
+    { usage: [30_000, 15_000, 3_050_000, 12_000, [20_000, 120, 3, 10], 500, [52_000, 410_000], 2_100_000_000], workers: ['blog-api', 'comment-worker'], pages: ['blog'] },
+    { usage: [8_000, 4_000, 0, 0, [1_200, 30, 0, 2], 0, [930_000, 3_200_000], 8_600_000_000], workers: ['img-upload'], pages: ['img-gallery'] },
+    { usage: [21_000, 12_000, 60_000, 800, [5_000, 60, 1, 4], 7_600, [1_000, 8_000], 50_000_000], workers: ['chat-gateway', 'embedding-job'], pages: ['assistant-web'] },
+    { usage: [3_000, 2_000, 9_000, 40, [600, 2, 0, 0], 0, [10, 300], 20_000_000], workers: [], pages: ['client-a-site'] },
+    { usage: [15_000, 7_000, 400_000, 6_000, [40_000, 710, 20, 30], 300, [2_000, 30_000], 300_000_000], workers: ['mini-api', 'mini-cron', 'mini-push'], pages: [] },
+    { usage: [9_000, 6_000, 500_000, 2_000, [8_000, 50, 0, 5], 0, [500, 12_000], 150_000_000], workers: ['report-api'], pages: ['client-c-dash'] },
+    { usage: [0, 0, null, null, [0, 0, 0, 0], 0, [0, 0], 0], workers: [], pages: [], errors: ['d1RowsRead', 'd1RowsWritten'] },
   ];
   let pending = Promise.resolve();
   return {
@@ -89,24 +95,24 @@ export function demoDashboard() {
         throw new HttpError(504, '演示：连接 Cloudflare 超时。');
       }
       return { demo: true, window: day, error: null, accounts: rows.map(account => {
-        const index = Number(account.accountId[0]) - 1;
-        const requests = counts[index] === undefined ? 0 : counts[index];
+        const profile = profiles[parseInt(account.accountId[0], 16) - 1] ?? { usage: [0, 0, 0, 0, [0, 0, 0, 0], 0, [0, 0], 0], workers: [], pages: [] };
+        const [requests, pagesFunctions, rowsRead, rowsWritten, [read, write, del, list], neurons, [classA, classB], r2Storage] = profile.usage;
         const quotas = quotaReport(month, {
-          workers: requests === null ? null : { requests, scope: workersOnlyScope },
-          pagesFunctions: index === 0 ? 65_000 : 0,
-          d1: { rowsRead: index === 0 ? 410_000 : 0, rowsWritten: index === 0 ? 1_520 : 0 },
-          kv: { read: index === 0 ? 3_400 : 0, write: index === 0 ? 48 : 0, delete: 0, list: 0 },
-          neurons: index === 0 ? 3_245 : 0,
-          r2Operations: { classA: index === 0 ? 580 : 0, classB: index === 0 ? 2_900 : 0, unclassified: 0 },
-          r2Storage: index === 0 ? 1_240_000_000 : 0,
+          workers: { requests, scope: workersOnlyScope },
+          pagesFunctions,
+          d1: { rowsRead, rowsWritten },
+          kv: { read, write, delete: del, list },
+          neurons,
+          r2Operations: { classA, classB, unclassified: 0 },
+          r2Storage,
         });
         return {
-          ...publicAccount(account), ...(examples[index] ?? { workers: [], pages: [] }),
+          ...publicAccount(account), workers: profile.workers.map(project), pages: profile.pages.map(project),
           usage: {
-            workers: { requests, freeLimit: workersFreeLimit, percent: requests === null ? null : requests / (workersFreeLimit / 100), scope: workersOnlyScope },
+            workers: { requests, freeLimit: workersFreeLimit, percent: requests / (workersFreeLimit / 100), scope: workersOnlyScope },
             d1RowsRead: quotas.d1.rowsRead.used, kvReads: quotas.kv.reads.used, quotas,
           },
-          errors: requests === null ? [{ section: 'workersUsage', message: '演示：缺少统计读取权限。' }] : [],
+          errors: (profile.errors ?? []).map(section => ({ section, message: '演示：缺少 D1 读取权限。' })),
         };
       }) };
     },

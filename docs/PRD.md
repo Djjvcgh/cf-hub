@@ -37,7 +37,7 @@
 
 - 用户执行 `cf-hub status` 时，工具并发查询已配置账号，显示各账号的 Workers、Pages 项目和今日用量。Workers 通过 `GET /client/v4/accounts/{id}/workers/scripts` 获取，Pages 通过 `GET /client/v4/accounts/{id}/pages/projects` 获取，结果包括后续分页中的项目。[Workers 列表接口](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/methods/list/) · [Pages 列表接口](https://developers.cloudflare.com/api/resources/pages/subresources/projects/methods/list/)
 - 通过 Cloudflare GraphQL 统计当日 UTC 00:00 起的 Workers 请求和 Pages Functions 请求。两项统计确认不重叠时，显示已统计合计占每日 100,000 次免费基准的比例，提示 Workflows 也可能消耗这份额度。排名继续依据口径一致的 Workers 请求数，成功查到的零请求参与排名。 [Workers 查询接口](https://developers.cloudflare.com/analytics/graphql-api/tutorials/querying-workers-metrics/) · [Pages Functions 计费](https://developers.cloudflare.com/pages/functions/pricing/#free-plan)
-- 用户展开「更多用量」可看当日 D1 读写行数、KV 读写删和列表操作、Workers AI Neurons，以及 R2 Standard 按 UTC 日历月估算的 A/B 类操作。R2 今日存储峰值合计用 GB 显示，另列账单周期的 GB-month 免费基准。缺权限或查询失败的用量显示「未知」及原因，成功的统计项照常显示。 [D1 指标](https://developers.cloudflare.com/d1/observability/metrics-analytics/) · [KV 指标](https://developers.cloudflare.com/kv/observability/metrics-analytics/) · [R2 计费](https://developers.cloudflare.com/r2/pricing/)
+- 用户在看板矩阵和账号详情里可看当日 D1 读写行数、KV 读写删和列表操作、Workers AI Neurons，以及 R2 Standard 按 UTC 日历月估算的 A/B 类操作。R2 今日存储峰值合计用 GB 显示，另列账单周期的 GB-month 免费基准。缺权限或查询失败的用量显示「未知」及原因，成功的统计项照常显示。 [D1 指标](https://developers.cloudflare.com/d1/observability/metrics-analytics/) · [KV 指标](https://developers.cloudflare.com/kv/observability/metrics-analytics/) · [R2 计费](https://developers.cloudflare.com/r2/pricing/)
 - Agent 执行 `cf-hub status --json` 时，标准输出只包含一个有效的 JSON 文档，提供统计窗口、账号和项目、用量及其口径、排名和缺失原因。未知数值用 `null` 表示，便于与零区分。
 
 ### CF-03 指定账号运行 Wrangler
@@ -51,11 +51,11 @@
 
 - 用户执行 `cf-hub ui` 后，工具启动本地 HTTP 服务，仅监听 `127.0.0.1`，默认使用 `3456` 端口，并自动打开浏览器。结束命令或关闭终端后，看板退出，终端仍可独立使用 `list`、`status` 和 `run`。
 - Windows 用户双击根目录的 [cf-hub.bat](../cf-hub.bat)，在默认浏览器打开看板后，脚本的命令窗口退出。关闭最后一个看板标签页后，本地服务自动停止。
-- 看板每个账号显示一张卡片，以账号名称为标题，显示今日请求数、免费额度进度条和 Workers、Pages 项目列表。进度条按占用率变色，用量未知时显示文字原因，避免与零消耗混淆。页面可见时每分钟查询，也可手动刷新。
+- 用户管理 10 个以上账号时，在看板的用量矩阵里一屏比较各账号的共享请求、D1、KV、Workers AI 和 R2 占用率。达到 60% 标黄，达到 80% 标红，用量未知时标灰并给出原因，避免与零消耗混淆。点一行可在右侧看到该账号全部分项用量、Workers 和 Pages 项目列表及部署命令入口。页面可见时每分钟查询，也可手动刷新。
 - 用户在页面底部展开「其他免费服务」，看到 Queues、Durable Objects、Workflows、Vectorize、Browser Run、Turnstile 和 Email Routing 的主要免费额度或限制，并可打开官方说明。目录提供固定参考，每次刷新只查询账号用量。
 - 项目列表展示项目名称和可从 Cloudflare 确认的访问链接。Worker 的 `workers.dev` 地址关闭、项目无公开地址或权限不足时，显示对应提示。[Worker 公开地址说明](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/#manage-access-to-workersdev)
-- 用户可以按 Workers 请求或已统计共享请求从少到多比较账号，每轮查询完成后统一排序。打开看板和刷新时，每个账号独立显示查询进度、结果或失败原因。
-- 用户点击账号卡片上的 Workers 或 Pages 复制按钮，能预览目标账号及完整命令。Pages 先填写构建目录。点击「复制命令」后给出结果反馈。
+- 用户可以按最紧张一项、余量多少、Workers 请求或已统计共享请求排序账号，每轮查询完成后统一排序。部署前可参考顶部推荐的余量最多账号。打开看板和刷新时，每个账号独立显示查询进度、结果或失败原因。
+- 用户在账号详情面板点击 Workers 或 Pages 复制按钮，能预览目标账号及完整命令。Pages 先填写构建目录。点击「复制命令」后给出结果反馈。
 
 ### CF-05 在看板管理账号
 

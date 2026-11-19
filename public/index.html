@@ -8,6 +8,7 @@
   <script type="module" src="/app.js"></script>
 </head>
 <body>
+  <div class="page">
   <header class="bar"><div class="shell brand"><span class="mark" aria-hidden="true">▰</span>cf-hub<span class="local"><i></i> 本机看板</span></div></header>
   <main class="shell">
     <div class="intro">
@@ -15,9 +16,25 @@
       <div class="actions"><button id="refresh" type="button">↻&nbsp; 刷新</button><button class="primary" id="add" type="button">＋ 添加账号</button></div>
     </div>
     <div id="demo" class="notice" hidden>演示数据 · 表单修改仅在这次试用期间保留</div>
-    <div class="report-line"><span id="summary"></span><label>排序 <select id="sort"><option value="workers">Workers 请求从少到多</option><option value="shared">已统计共享请求从少到多</option></select></label></div>
+    <div id="overview" class="overview" aria-live="polite"></div>
+    <div class="report-line">
+      <span id="summary"></span>
+      <span class="legend" aria-label="颜色说明"><i class="ok"></i>低于 60%<i class="warn"></i>60%–80%<i class="high"></i>80% 以上</span>
+      <label class="sort">排序 <select id="sort">
+        <option value="tight">最紧张的排前面</option>
+        <option value="room">余量最多的排前面</option>
+        <option value="workers">Workers 请求从少到多</option>
+        <option value="shared">已统计共享请求从少到多</option>
+      </select></label>
+    </div>
     <p id="feedback" role="status" hidden></p>
-    <section id="accounts" class="grid" aria-label="Cloudflare 账号"></section>
+    <div class="table-wrap">
+      <table class="matrix">
+        <thead><tr><th scope="col" class="name-col">账号</th><th scope="col">共享请求</th><th scope="col">D1</th><th scope="col">KV</th><th scope="col">Workers AI</th><th scope="col">R2</th><th scope="col" class="project-col">项目</th></tr></thead>
+        <tbody id="accounts" aria-label="Cloudflare 账号"></tbody>
+      </table>
+    </div>
+    <p class="hint table-note">每格显示该产品里用得最多的一项。点一行查看全部用量、项目和部署命令。每日用量从北京时间 08:00 起算，R2 操作按 UTC 日历月估算。</p>
     <details id="service-directory" class="service-directory">
       <summary>其他免费服务</summary>
       <ul>
@@ -31,6 +48,14 @@
       </ul>
     </details>
   </main>
+  </div>
+  <aside id="detail" class="drawer" aria-labelledby="detail-title" inert>
+    <div class="drawer-head">
+      <div><h2 id="detail-title"></h2><p id="detail-status" class="hint" role="status"></p></div>
+      <div class="drawer-tools"><button id="detail-edit" type="button">编辑</button><button id="close-detail" class="icon" type="button" aria-label="关闭详情">×</button></div>
+    </div>
+    <div id="detail-body" class="drawer-body"></div>
+  </aside>
   <dialog id="command-dialog" aria-labelledby="command-title">
     <form id="command-form">
       <div class="dialog-head"><h2 id="command-title">部署命令</h2><button id="close-command" class="icon" type="button" aria-label="关闭">×</button></div>
