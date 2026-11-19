@@ -389,9 +389,23 @@ button:disabled {
   color: var(--muted);
 }
 
-.copy {
-  align-self: flex-start;
-  margin-top: auto;
+.command-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+#command-preview {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--paper);
+  padding: 12px;
+  border-radius: 7px;
+  user-select: all;
+}
+
+#command-preview:empty {
+  display: none;
 }
 
 .empty {

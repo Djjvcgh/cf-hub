@@ -18,6 +18,8 @@
 
 卡片标题和终端命令用同一个账号名称，支持中文和空格。已有的短别名仍可以调用原账号，旧备注可作为迁移后的名称。
 
+在账号卡片上点「复制 Workers 部署命令」或「复制 Pages 部署命令」。Pages 需要填写实际构建目录，例如 `./dist`。核对完整命令再点「复制命令」，到业务项目目录使用。Windows 上粘贴到 PowerShell，目录里有空格或单引号也可以直接复制。
+
 ## 申请 API Token
 
 在 Cloudflare 控制台打开个人头像 → My Profile → API Tokens → Create Token → Custom Token。想使用归属于账号的 Token，也可从 Manage Account → API Tokens 创建。添加下表需要的权限，在 **Account Resources** 里只包含这枚 Token 对应的账号。使用域名权限时，在 **Zone Resources** 里只选涉及的站点。点击创建后复制 Token，回到 `cf-hub ui` 的账号表单粘贴保存。已有账号可点「编辑」更换 Token，留空会保留原值。 [Cloudflare 创建 Token 指引](https://developers.cloudflare.com/fundamentals/api/get-started/create-token/)

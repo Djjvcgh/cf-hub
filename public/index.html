@@ -31,6 +31,16 @@
       </ul>
     </details>
   </main>
+  <dialog id="command-dialog" aria-labelledby="command-title">
+    <form id="command-form">
+      <div class="dialog-head"><h2 id="command-title">部署命令</h2><button id="close-command" class="icon" type="button" aria-label="关闭">×</button></div>
+      <p class="muted" id="command-shell"></p>
+      <label id="directory-label">构建目录<input id="build-directory" placeholder="例如 ./dist" autocomplete="off" spellcheck="false"></label>
+      <pre id="command-preview" aria-label="完整命令"></pre>
+      <p id="copy-feedback" role="status" hidden></p>
+      <div class="dialog-actions"><button class="primary" type="submit">复制命令</button></div>
+    </form>
+  </dialog>
   <dialog id="editor" aria-labelledby="editor-title">
     <form id="account-form">
       <div class="dialog-head"><h2 id="editor-title"></h2><button class="icon" id="close-editor" type="button" aria-label="关闭">×</button></div>

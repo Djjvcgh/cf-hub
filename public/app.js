@@ -7,6 +7,11 @@ const refresh = select('#refresh');
 const editor = select('#editor');
 const form = select('#account-form');
 const confirmDelete = select('#confirm-delete');
+const commandDialog = select('#command-dialog');
+const commandForm = select('#command-form');
+const directoryField = select('#build-directory');
+const preview = select('#command-preview');
+let commandAccount;
 const fields = form.elements;
 let session;
 let editing;
@@ -48,12 +53,35 @@ async function mutate(method, name, body) {
   });
 }
 
-function deployCommand(name) {
-  if (/^[a-zA-Z0-9][a-zA-Z0-9_.@+-]*$/.test(name)) return `cf-hub run ${name} -- deploy`;
+function quoteArgument(value) {
+  if (/^[a-zA-Z0-9][a-zA-Z0-9_.@+-]*$/.test(value) || /^\.\/[a-zA-Z0-9_./-]+$/.test(value)) return value;
   const quoted = navigator.platform.startsWith('Win')
-    ? name.replace(/['‘’]/g, character => character.repeat(2))
-    : name.replaceAll("'", "'\\''");
-  return `cf-hub run '${quoted}' -- deploy`;
+    ? value.replace(/['‘’‚‛]/g, character => character.repeat(2))
+    : value.replaceAll("'", "'\\''");
+  return `'${quoted}'`;
+}
+
+function updateCommand() {
+  const pages = directoryField.required;
+  const directory = directoryField.value;
+  const invalid = !directory.trim() || /[\x00-\x1f\x7f\u0085\u2028\u2029]/.test(directory);
+  directoryField.setCustomValidity(pages && invalid ? '请输入单行构建目录，例如 ./dist。' : '');
+  const path = directory.startsWith('-') ? './' + directory : directory;
+  const args = pages ? 'pages deploy ' + quoteArgument(path) : 'deploy';
+  preview.textContent = pages && invalid ? '' : `cf-hub run ${quoteArgument(commandAccount)} -- ${args}`;
+  message(select('#copy-feedback'), '');
+}
+
+function openCommand(account, pages) {
+  commandAccount = account.name;
+  commandForm.reset();
+  select('#command-title').textContent = pages ? '复制 Pages 部署命令' : '复制 Workers 部署命令';
+  select('#command-shell').textContent = navigator.platform.startsWith('Win') ? '在项目目录的 PowerShell 中使用' : '在项目目录的终端中使用';
+  directoryField.required = pages;
+  select('#directory-label').hidden = !pages;
+  updateCommand();
+  commandDialog.showModal();
+  if (pages) directoryField.focus();
 }
 
 function projectList(title, projects, error) {
@@ -203,18 +231,13 @@ function createCard(account) {
   const notice = element('p', '', 'hint card-status');
   notice.setAttribute('role', 'status');
   const content = element('div');
-  const copy = element('button', '复制部署命令', 'copy');
-  const command = deployCommand(account.name);
-  copy.addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText(command);
-      copy.textContent = '已复制';
-      setTimeout(() => { copy.textContent = '复制部署命令'; }, 1600);
-    } catch {
-      message(feedback, `复制失败，可手动复制：${command}`, true);
-    }
-  });
-  wrapper.append(heading, notice, content, copy);
+  const commands = element('div', undefined, 'command-actions');
+  for (const product of ['Workers', 'Pages']) {
+    const button = element('button', `复制 ${product} 部署命令`);
+    button.addEventListener('click', () => openCommand(account, product === 'Pages'));
+    commands.append(button);
+  }
+  wrapper.append(heading, notice, content, commands);
   return { wrapper, notice, content, accountId: account.accountId, name: account.name };
 }
 
@@ -288,6 +311,17 @@ select('#close-editor').addEventListener('click', () => editor.close());
 editor.addEventListener('close', () => { fields.apiToken.value = ''; });
 refresh.addEventListener('click', () => load());
 select('#sort').addEventListener('change', () => { if (!refresh.disabled) sortCards(); });
+select('#close-command').addEventListener('click', () => commandDialog.close());
+directoryField.addEventListener('input', updateCommand);
+commandForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  try {
+    await navigator.clipboard.writeText(preview.textContent);
+    message(select('#copy-feedback'), '已复制');
+  } catch {
+    message(select('#copy-feedback'), '复制失败，请选中上面的完整命令手动复制。', true);
+  }
+});
 form.addEventListener('submit', async event => {
   event.preventDefault();
   const submit = form.querySelector('[type=submit]');
@@ -320,7 +354,7 @@ confirmDelete.addEventListener('close', async () => {
 });
 void load();
 setInterval(() => {
-  if (document.visibilityState === 'visible' && !editor.open && !refresh.disabled && !demo) {
+  if (document.visibilityState === 'visible' && !editor.open && !commandDialog.open && !refresh.disabled && !demo) {
     void load({ background: true });
   }
 }, refreshEvery);
