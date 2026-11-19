@@ -11,6 +11,7 @@ let editing;
 let currentReport;
 let refreshSequence = 0;
 const refreshEvery = 60_000;
+const numberFormat = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 3 });
 
 function element(tag, text, className) {
   const node = document.createElement(tag);
@@ -86,7 +87,73 @@ function openEditor(account) {
   editor.showModal();
 }
 
-function card(account) {
+function format(number) {
+  return number === null ? '未知' : numberFormat.format(number);
+}
+
+function quotaValue({ used, freeLimit }, unit = '') {
+  return `${format(used)} / ${format(freeLimit)}${unit ? ` ${unit}` : ''}`;
+}
+
+function usageGroup(title, rows) {
+  const section = element('section', undefined, 'quota-group');
+  const list = element('dl');
+  for (const [label, value, error] of rows) {
+    const row = element('div', undefined, 'quota-row');
+    const detail = element('dd', value);
+    if (error) detail.append(element('small', error));
+    row.append(element('dt', label), detail);
+    list.append(row);
+  }
+  section.append(element('h3', title), list);
+  return section;
+}
+
+function moreUsage({ d1, kv, workersAi, r2 }, errors) {
+  const details = element('details', undefined, 'more-usage');
+  const daily = element('div', undefined, 'quota-grid');
+  daily.append(
+    usageGroup('D1', [
+      ['读取', quotaValue(d1.rowsRead, '行'), errors.d1RowsRead],
+      ['写入', quotaValue(d1.rowsWritten, '行'), errors.d1RowsWritten],
+    ]),
+    usageGroup('Workers KV', [
+      ['读取', quotaValue(kv.reads), errors.kvReads],
+      ['写入', quotaValue(kv.writes), errors.kvWrites],
+      ['删除', quotaValue(kv.deletes), errors.kvDeletes],
+      ['列表', quotaValue(kv.lists), errors.kvLists],
+    ]),
+    usageGroup('Workers AI', [['用量', quotaValue(workersAi.neurons, 'Neurons'), errors.workersAi]]),
+  );
+  const storageGb = r2.storagePeakBytes === null ? null : r2.storagePeakBytes / 1e9;
+  const storage = storageGb === null ? '未知' : `${storageGb > 0 && storageGb < 0.001 ? '< 0.001' : format(storageGb)} GB`;
+  const r2Section = usageGroup('R2 Standard', [
+    ['A 类操作', quotaValue(r2.classA), errors.r2Operations],
+    ['B 类操作', quotaValue(r2.classB)],
+    ['今日各桶峰值合计', storage, errors.r2Storage],
+  ]);
+  const r2Window = element('p', `${r2.window.start.slice(0, 7)} UTC 日历月操作估算，账单按订阅周期计算。`, 'hint');
+  r2Section.querySelector('h3').after(r2Window);
+  if (r2.unclassifiedOperations > 0) {
+    r2Section.append(element('p', `另有 ${format(r2.unclassifiedOperations)} 次操作待归类。`, 'hint'));
+  }
+  const r2Pricing = element('a', 'R2 免费额度');
+  r2Pricing.href = 'https://developers.cloudflare.com/r2/pricing/#free-tier';
+  r2Pricing.target = '_blank';
+  r2Pricing.rel = 'noopener noreferrer';
+  const storageNote = element('p', `存储免费基准 ${r2.storageFreeLimitGbMonths} GB-month / 月 · `, 'hint');
+  storageNote.append(r2Pricing);
+  r2Section.append(storageNote);
+  details.append(
+    element('summary', '更多用量'),
+    daily,
+    element('p', 'KV 显示统计次数，批量操作按键计费。', 'hint'),
+    r2Section,
+  );
+  return details;
+}
+
+function card(account, expanded) {
   const wrapper = element('article', undefined, 'card');
   const heading = element('div', undefined, 'card-top');
   const names = element('div');
@@ -96,32 +163,31 @@ function card(account) {
   edit.addEventListener('click', () => openEditor(account));
   heading.append(names, edit);
 
-  const { requests, freeLimit, percent, scope } = account.usage.workers;
+  const { requests } = account.usage.quotas;
   const usage = element('div', undefined, 'usage');
   const usageTop = element('div', undefined, 'usage-top');
   const errors = Object.fromEntries(account.errors.map(({ section, message }) => [section, message]));
-  const format = number => number.toLocaleString('zh-CN', { maximumFractionDigits: 2 });
-  usageTop.append(element('span', '今日请求'), element('strong', requests === null ? '未知' : `${format(requests)} / ${format(freeLimit)}`));
+  const { percent } = requests;
+  usageTop.append(element('span', '今日共享请求额度'), element('strong', quotaValue(requests)));
   const track = element('progress', undefined, `track ${percent === null ? 'unknown' : percent >= 90 ? 'high' : percent >= 70 ? 'warn' : ''}`);
   track.max = 100;
   track.value = Math.max(0, Math.min(100, percent ?? 0));
-  track.setAttribute('aria-label', requests === null ? '用量未知' : `免费额度基准 ${format(percent)}%`);
-  const coverage = scope === 'workers-invocations; pages-functions-separate'
-    ? '估算 · 仅 Workers，另有 Pages Functions 用量'
-    : '估算 · Pages Functions 覆盖未确认';
-  const detail = requests === null ? errors.workersUsage || '暂无用量数据' : `${format(percent)}% · ${scope === 'demo' ? '演示用量' : coverage}`;
-  usage.append(usageTop, track, element('p', detail, 'hint'));
-  if (scope !== 'demo') {
-    const d1 = account.usage.d1RowsRead == null ? '未知' : format(account.usage.d1RowsRead);
-    const kv = account.usage.kvReads == null ? '未知' : format(account.usage.kvReads);
-    const extra = element('p', undefined, 'hint');
-    const d1Label = element('span', `D1 读取 ${d1}${d1 === '未知' ? '' : ' 行'}`);
-    const kvLabel = element('span', `KV 读取 ${kv}${kv === '未知' ? '' : ' 次'}`);
-    if (errors.d1RowsRead) d1Label.title = errors.d1RowsRead;
-    if (errors.kvReads) kvLabel.title = errors.kvReads;
-    extra.append(d1Label, ' · ', kvLabel);
-    usage.append(extra);
+  track.setAttribute('aria-label', percent === null ? '合计未知' : `免费额度基准 ${format(percent)}%`);
+  usage.append(usageTop, track);
+  if (percent !== null) usage.append(element('p', `已统计 ${format(percent)}%`, 'hint'));
+  const requestSources = usageGroup('请求来源', [
+    ['Workers', format(requests.workers), errors.workersUsage],
+    ['Pages Functions', format(requests.pagesFunctions), errors.pagesFunctions],
+  ]);
+  requestSources.classList.add('request-sources');
+  usage.append(requestSources);
+  if (percent === null && requests.workers !== null && requests.pagesFunctions !== null) {
+    usage.append(element('p', '目前无法确认两项统计是否重叠。', 'hint'));
   }
+  usage.append(element('p', 'Workflows 也可能占用这份额度。', 'hint'));
+  const details = moreUsage(account.usage.quotas, errors);
+  details.dataset.account = account.name;
+  details.open = expanded.has(account.name);
 
   const projects = element('div', undefined, 'projects');
   projects.append(projectList('Workers', account.workers, errors.workers), projectList('Pages', account.pages, errors.pages));
@@ -136,7 +202,7 @@ function card(account) {
       message(feedback, `复制失败，可手动复制：${command}`, true);
     }
   });
-  wrapper.append(heading, usage, projects, copy);
+  wrapper.append(heading, usage, details, projects, copy);
   return wrapper;
 }
 
@@ -145,9 +211,10 @@ function render(report) {
   select('#demo').hidden = !report.demo;
   const ranking = new Map((report.ranking ?? []).map((entry, index) => [entry.alias, index]));
   const accounts = [...report.accounts].sort((a, b) => (ranking.get(a.alias) ?? Infinity) - (ranking.get(b.alias) ?? Infinity));
-  select('#summary').textContent = `${accounts.length} 个账号 · UTC 统计${accounts.length && !report.demo ? ' · 每分钟自动查询' : ''}`;
+  const expanded = new Set([...grid.querySelectorAll('.more-usage[open]')].map(details => details.dataset.account));
+  select('#summary').textContent = `${accounts.length} 个账号 · 每日用量从北京时间 08:00 起算${accounts.length && !report.demo ? ' · 每分钟自动查询' : ''}`;
   select('#updated').textContent = report.window?.end ? `查询于 ${new Date(report.window.end).toLocaleTimeString('zh-CN', { hour12: false })}` : '';
-  grid.replaceChildren(...accounts.map(card));
+  grid.replaceChildren(...accounts.map(account => card(account, expanded)));
   if (accounts.length === 0 && !report.error) grid.append(element('p', '还没有账号，点击「添加账号」开始。', 'card empty'));
   message(feedback, report.error || '', Boolean(report.error));
 }

@@ -62,8 +62,12 @@ test('status returns zero, pagination and confirmed links independently of faile
       }
       const groups = {
         workersInvocationsAdaptive: [],
-        d1AnalyticsAdaptiveGroups: [{ sum: { rowsRead: 12 } }],
-        kvOperationsAdaptiveGroups: [{ sum: { requests: 7 } }],
+        pagesFunctionsInvocationsAdaptiveGroups: [{ sum: { requests: 5 } }],
+        d1AnalyticsAdaptiveGroups: [{ sum: { rowsRead: 12, rowsWritten: 2 } }],
+        kvOperationsAdaptiveGroups: [{ sum: { requests: 7 }, dimensions: { actionType: 'read' } }],
+        aiInferenceAdaptiveGroups: [],
+        r2OperationsAdaptiveGroups: [],
+        r2StorageAdaptiveGroups: [],
       };
       return { data: { viewer: { accounts: [{ [dataset]: groups[dataset] }] } } };
     }
@@ -88,8 +92,14 @@ test('status returns zero, pagination and confirmed links independently of faile
   assert.deepEqual(report.accounts[0].pages.map(project => project.name), ['page-1', 'page-2']);
   assert.equal(report.accounts[0].usage.d1RowsRead, 12);
   assert.equal(report.accounts[0].usage.kvReads, 7);
+  assert.equal(report.accounts[0].usage.quotas.requests.used, 5);
+  assert.equal(report.accounts[0].usage.quotas.requests.percent, 0.005);
+  assert.equal(report.accounts[0].usage.quotas.workersAi.neurons.used, 0);
+  assert.equal(report.accounts[0].usage.quotas.r2.storagePeakBytes, null);
+  assert.match(report.accounts[0].errors.find(error => error.section === 'r2Storage').message, /没有 R2 存储样本/);
   assert.equal(report.accounts[1].usage.workers.requests, null);
-  assert.equal(report.accounts[1].errors.length, 5);
+  assert.equal(report.accounts[1].usage.quotas.workersAi.neurons.used, null);
+  assert.ok(report.accounts[1].errors.some(error => error.section === 'workersAi' && error.message === '没有读取权限'));
   assert.ok(!JSON.stringify(report).includes('private-token'));
   assert.equal(failedStatus(report), false);
   assert.equal(failedStatus({ ...report, accounts: [report.accounts[1]] }), true);
@@ -107,7 +117,71 @@ test('rankings use the verified Workers-only scope when Cloudflare reports diffe
   } });
   const report = await client.status({ read: async () => [first, second] });
   assert.equal(report.accounts[1].usage.workers.requests, 3);
+  assert.equal(report.accounts[0].usage.quotas.requests.used, 10);
+  assert.equal(report.accounts[1].usage.quotas.requests.pagesFunctions, 0);
+  assert.equal(report.accounts[1].usage.quotas.requests.used, null);
   assert.deepEqual(report.ranking, [{ alias: first.alias, name: first.name, requests: 10 }]);
+});
+
+test('quota report keeps daily and monthly windows separate and includes only Standard R2 usage', async () => {
+  const requests = [];
+  const graphql = {
+    workersInvocationsAdaptiveGroups: { errors: [{ message: 'unknown field "workersInvocationsAdaptiveGroups"' }] },
+    workersInvocationsAdaptive: [],
+    pagesFunctionsInvocationsAdaptiveGroups: { errors: [{ message: 'not authorized for that account' }] },
+    d1AnalyticsAdaptiveGroups: [{ sum: { rowsRead: 11, rowsWritten: null } }],
+    kvOperationsAdaptiveGroups: [
+      { dimensions: { actionType: 'delete' }, sum: { requests: 2 } },
+      { dimensions: { actionType: 'list' }, sum: { requests: 1 } },
+      { dimensions: { actionType: 'write' }, sum: { requests: 9 } },
+    ],
+    aiInferenceAdaptiveGroups: [{ sum: { totalNeurons: 2.5 } }],
+    r2OperationsAdaptiveGroups: [
+      { dimensions: { actionType: 'PutObject', storageClass: 'Standard' }, sum: { requests: 13 } },
+      { dimensions: { actionType: 'GetObject', storageClass: 'Standard' }, sum: { requests: 23 } },
+      { dimensions: { actionType: 'GetObject', storageClass: 'InfrequentAccess' }, sum: { requests: 400 } },
+      { dimensions: { actionType: 'DeleteObject', storageClass: 'Standard' }, sum: { requests: 700 } },
+      { dimensions: { actionType: 'NewOperation', storageClass: 'Standard' }, sum: { requests: 5 } },
+    ],
+    r2StorageAdaptiveGroups: [
+      { dimensions: { bucketName: 'one', storageClass: 'Standard' }, max: { payloadSize: 1000, metadataSize: 20 } },
+      { dimensions: { bucketName: 'two', storageClass: 'Standard' }, max: { payloadSize: 300, metadataSize: 10 } },
+      { dimensions: { bucketName: 'two', storageClass: 'InfrequentAccess' }, max: { payloadSize: 800, metadataSize: 40 } },
+    ],
+  };
+  const client = await createCloudflare({ transport: async (path, account, body) => {
+    if (path !== '/graphql') return { result: [] };
+    const dataset = /\b(\w+Adaptive(?:Groups)?)\(limit/.exec(body.query)[1];
+    requests.push({ dataset, ...body.variables });
+    const groups = graphql[dataset];
+    if (groups?.errors) return groups;
+    return { data: { viewer: { accounts: [{ [dataset]: groups }] } } };
+  } });
+  const store = { read: async () => [first] };
+  const before = await client.status(store, new Date('2026-11-30T23:59:59Z'));
+  const after = await client.status(store, new Date('2026-12-01T00:00:01Z'));
+  const { quotas } = after.accounts[0].usage;
+  assert.deepEqual([before.window.start, after.window.start], ['2026-11-30T00:00:00.000Z', '2026-12-01T00:00:00.000Z']);
+  assert.deepEqual(requests.filter(query => query.dataset === 'r2OperationsAdaptiveGroups').map(query => query.start),
+    ['2026-11-01T00:00:00Z', '2026-12-01T00:00:00Z']);
+  assert.deepEqual(requests.filter(query => query.dataset === 'r2StorageAdaptiveGroups').map(query => query.start),
+    ['2026-11-30T00:00:00Z', '2026-12-01T00:00:00Z']);
+  assert.deepEqual(requests.filter(query => query.dataset === 'd1AnalyticsAdaptiveGroups').map(query => query.start),
+    ['2026-11-30', '2026-12-01']);
+  assert.equal(quotas.requests.used, null);
+  assert.equal(quotas.requests.workers, 0);
+  assert.equal(quotas.requests.pagesFunctions, null);
+  assert.equal(quotas.d1.rowsRead.used, 11);
+  assert.equal(quotas.d1.rowsWritten.used, null);
+  assert.deepEqual(Object.values(quotas.kv).map(quota => quota.used), [0, 9, 2, 1]);
+  assert.equal(quotas.workersAi.neurons.used, 2.5);
+  assert.equal(quotas.r2.classA.used, 13);
+  assert.equal(quotas.r2.classB.used, 23);
+  assert.equal(quotas.r2.unclassifiedOperations, 5);
+  assert.equal(quotas.r2.storagePeakBytes, 1330);
+  assert.equal(quotas.r2.storageFreeLimitGbMonths, 10);
+  assert.match(after.accounts[0].errors.find(error => error.section === 'pagesFunctions').message, /统计读取权限/);
+  assert.equal(failedStatus(after), false);
 });
 
 test('successive refreshes fetch newer usage while sharing confirmed Worker links', async () => {

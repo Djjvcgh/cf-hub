@@ -11,13 +11,25 @@
   <header class="bar"><div class="shell brand"><span class="mark" aria-hidden="true">▰</span>cf-hub<span class="local"><i></i> 本机看板</span></div></header>
   <main class="shell">
     <div class="intro">
-      <div><h1>账号总览</h1><p class="muted">Workers、Pages 与今日用量</p></div>
+      <div><h1>账号总览</h1><p class="muted">Cloudflare 项目与免费额度</p></div>
       <div class="actions"><button id="refresh" type="button">↻&nbsp; 刷新</button><button class="primary" id="add" type="button">＋ 添加账号</button></div>
     </div>
     <div id="demo" class="notice" hidden>演示数据 · 表单修改仅在这次试用期间保留</div>
     <div class="report-line"><span id="summary"></span><span id="updated"></span></div>
     <p id="feedback" role="status" hidden></p>
     <section id="accounts" class="grid" aria-label="Cloudflare 账号"></section>
+    <details id="service-directory" class="service-directory">
+      <summary>其他免费服务</summary>
+      <ul>
+        <li><a href="https://developers.cloudflare.com/queues/platform/pricing/" target="_blank" rel="noopener noreferrer">Queues</a><span>消息队列 · 每日 10,000 次操作</span></li>
+        <li><a href="https://developers.cloudflare.com/durable-objects/platform/pricing/" target="_blank" rel="noopener noreferrer">Durable Objects</a><span>有状态服务 · 每日 100,000 次请求和 13,000 GB-s 运行时长，免费版使用 SQLite</span></li>
+        <li><a href="https://developers.cloudflare.com/workflows/reference/pricing/" target="_blank" rel="noopener noreferrer">Workflows</a><span>多步骤任务 · 每日 3,000 个步骤，共用 Workers 请求额度</span></li>
+        <li><a href="https://developers.cloudflare.com/vectorize/platform/pricing/" target="_blank" rel="noopener noreferrer">Vectorize</a><span>向量检索 · 每月可查询 3,000 万向量维度，可存储 500 万维度</span></li>
+        <li><a href="https://developers.cloudflare.com/browser-run/pricing/" target="_blank" rel="noopener noreferrer">Browser Run</a><span>无头浏览器 · 每日 10 分钟，最多 3 个并行会话</span></li>
+        <li><a href="https://developers.cloudflare.com/turnstile/plans/" target="_blank" rel="noopener noreferrer">Turnstile</a><span>访客验证 · 最多 20 个小组件，验证次数不限</span></li>
+        <li><a href="https://developers.cloudflare.com/email-service/platform/limits/#email-routing-limits" target="_blank" rel="noopener noreferrer">Email Routing</a><span>收件转发 · 每个域名最多 200 条规则，每个账号最多 200 个收件地址</span></li>
+      </ul>
+    </details>
   </main>
   <dialog id="editor" aria-labelledby="editor-title">
     <form id="account-form">

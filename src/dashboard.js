@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { accountRecord, findAccount, InputError, normalizeAccountName, publicAccount } from './accounts.js';
+import { quotaReport, quotaWindows, workersFreeLimit, workersOnlyScope } from './quotas.js';
 
 const assets = {
   '/': ['index.html', 'text/html'],
@@ -74,13 +75,25 @@ export function demoDashboard() {
     },
     validate: async () => {},
     status: async () => {
-      const end = new Date().toISOString();
-      return { demo: true, window: { start: `${end.slice(0, 10)}T00:00:00.000Z`, end }, error: null, accounts: accounts.map(account => {
+      const { day, month } = quotaWindows();
+      return { demo: true, window: day, error: null, accounts: accounts.map(account => {
         const index = Number(account.accountId[0]) - 1;
         const requests = counts[index] === undefined ? 0 : counts[index];
+        const quotas = quotaReport(month, {
+          workers: requests === null ? null : { requests, scope: workersOnlyScope },
+          pagesFunctions: index === 0 ? 1_940 : 0,
+          d1: { rowsRead: index === 0 ? 410_000 : 0, rowsWritten: index === 0 ? 1_520 : 0 },
+          kv: { read: index === 0 ? 3_400 : 0, write: index === 0 ? 48 : 0, delete: 0, list: 0 },
+          neurons: index === 0 ? 3_245 : 0,
+          r2Operations: { classA: index === 0 ? 580 : 0, classB: index === 0 ? 2_900 : 0, unclassified: 0 },
+          r2Storage: index === 0 ? 1_240_000_000 : 0,
+        });
         return {
           ...publicAccount(account), ...(examples[index] ?? { workers: [], pages: [] }),
-          usage: { workers: { requests, freeLimit: 100000, percent: requests === null ? null : requests / 1000, scope: 'demo' } },
+          usage: {
+            workers: { requests, freeLimit: workersFreeLimit, percent: requests === null ? null : requests / (workersFreeLimit / 100), scope: 'demo' },
+            d1RowsRead: quotas.d1.rowsRead.used, kvReads: quotas.kv.reads.used, quotas,
+          },
           errors: requests === null ? [{ section: 'workersUsage', message: '演示：缺少统计读取权限。' }] : [],
         };
       }) };

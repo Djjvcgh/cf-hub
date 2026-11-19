@@ -7,7 +7,7 @@
 - 配置文件首次使用时可以不存在，此时显示空列表。配置内容损坏时，提示文件路径和问题，保留原文件。账号名称支持中文和空格，在看板和终端使用同一名称。已有短别名仍可解析到原账号。
 - 添加账号或更换 Account ID、Token 时，对该 Account ID 发起只读校验。成功的账号级请求可以确认连通性。其他权限不足的项目在看板和 `status` 分项提示。只改账号名称或删除本地记录时，可直接保存。
 - `list` 显示账号名称和 Account ID。`status` 查询开始时以 UTC 固定本次起止时间，列表接口按实际分页规则取齐，Workers、Pages 和各用量项独立汇报结果。
-- 排名以同一统计口径的请求数升序排列，同值按账号名称排列。存在多种统计口径时，优先用已确认仅含 Workers 的口径给出排名。成功查出的零请求参与同口径排名。Pages Functions 的统计范围按实测结果标注，进度百分比基于 PRD 约定的免费版基准。
+- 排名以同口径的 Workers 请求数升序排列，同值按账号名称排列。存在多种口径时优先用已确认仅含 Workers 的统计。合计单独由 Workers 请求和 Pages Functions 请求计算，前者采用已验证分开的统计口径才可求和。R2 操作按 UTC 月初起算，仅累加已识别的 Standard A/B 类操作，未知类别另列。R2 存储用当日各 Standard 存储桶报告的对象和元数据峰值估算，按字节返回。
 
 ### `status --json` 的结构
 
@@ -15,7 +15,7 @@
 | --- | --- |
 | `window.start`、`window.end` | 本次查询的 UTC 起止时间，使用 ISO 8601。 |
 | `accounts[]` | `name`、`accountId`、`workers`、`pages`、`usage` 和 `errors`。兼容字段为 `alias` 和 `remark`。成功查到空项目列表时返回 `[]`，列表未知时返回 `null`。 |
-| `accounts[].usage` | `workers` 内包含 `requests`、`freeLimit`、`percent`、`scope`。`d1RowsRead` 与 `kvReads` 为各自用量。未知数值用 `null`，原因放到同一账号的 `errors`。 |
+| `accounts[].usage` | 保留 `workers`、`d1RowsRead` 和 `kvReads`。`quotas` 按 `requests`、`d1`、`kv`、`workersAi`、`r2` 分组。度量使用 `used` 与 `freeLimit`。共享请求另外包含两个来源和 `percent`。R2 使用独立的月度 `window`，存储峰值为 `storagePeakBytes`，存储免费基准另用 `storageFreeLimitGbMonths`。未知用量为 `null`。 |
 | `accounts[].errors[]` | `section` 和 `message`，说明哪个查询项有问题。 |
 | `ranking[]` | 按用量排列的 `name`、兼容字段 `alias` 和 `requests`，用于展示顺序。 |
 | `error` | 无法读取配置等阻止生成报告的错误信息。正常生成报告时为 `null`。 |
@@ -32,7 +32,7 @@ JSON 模式的标准输出始终是一个 JSON 文档，诊断文字走标准错
 ## 3. 看板
 
 1. 执行 `cf-hub ui` 后打开 `http://127.0.0.1:3456`。首页提供「刷新」和「添加账号」。看板可见且账号表单关闭时，每分钟查询一次。查询期间保留上一轮卡片，查到的项目和用量可独立展示。
-2. 每张卡片以账号名称为标题，展示今日用量和 Workers、Pages 列表。进度条按 70% 和 90% 两档预警，附数字或「未知」说明。项目有可确认的访问地址时可以点开，无地址时仍显示项目名。
+2. 每张卡片展示两项共享请求、合计进度和 Workers、Pages 列表。进度条按 70% 和 90% 两档预警。展开「更多用量」查看各产品用量和分项错误，刷新时保留展开状态。页底目录列出额外产品的免费额度和官方链接。
 3. 点击「复制部署命令」后显示「已复制」，粘贴得到以账号名称选择目标的命令。添加或编辑账号时，提交后在表单内给结果。已保存的 Token 用「已设置」表示，留空时保留原值。删除前显示要移除的账号名称，确认后刷新列表。
 
 | 本地接口 | 用途 |

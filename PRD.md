@@ -36,9 +36,8 @@
 ### CF-02 账号状态与用量排名
 
 - 用户执行 `cf-hub status` 时，工具并发查询已配置账号，显示各账号的 Workers、Pages 项目和今日用量。Workers 通过 `GET /client/v4/accounts/{id}/workers/scripts` 获取，Pages 通过 `GET /client/v4/accounts/{id}/pages/projects` 获取，结果包括后续分页中的项目。[Workers 列表接口](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/methods/list/) · [Pages 列表接口](https://developers.cloudflare.com/api/resources/pages/subresources/projects/methods/list/)
-- 通过 `POST /client/v4/graphql` 查询 `workersInvocationsAdaptiveGroups`。Cloudflare 未提供该数据集时，使用官方文档中的 `workersInvocationsAdaptive`。统计当日 UTC 00:00 到查询时点的 Workers 请求量，以 Workers Free 每日 100,000 次为基准估算百分比。Pages Functions 也消耗同一份额度。界面和 JSON 标明当前数据集的统计范围及 Pages Functions 覆盖情况。[Workers 查询接口](https://developers.cloudflare.com/analytics/graphql-api/tutorials/querying-workers-metrics/) · [Workers 免费额度](https://developers.cloudflare.com/workers/platform/limits/#daily-requests) · [Pages Functions 计费](https://developers.cloudflare.com/pages/functions/pricing/#free-plan)
-- 权限及数据源支持时，同期显示 D1 读取行数和 KV 读取次数。缺权限或查询失败时，对应项显示「未知」及原因。一个账号或一个数据项出错时，仍显示查到的其他结果。成功查到零请求的账号应显示 `0`。[D1 指标](https://developers.cloudflare.com/d1/observability/metrics-analytics/) · [KV 指标](https://developers.cloudflare.com/kv/observability/metrics-analytics/)
-- 排名按口径一致的今日请求数从少到多排列，用量未知的账号不参加排名。D1 和 KV 数据供参考。
+- 通过 Cloudflare GraphQL 统计当日 UTC 00:00 起的 Workers 请求和 Pages Functions 请求。两项统计确认不重叠时，显示已统计合计占每日 100,000 次免费基准的比例，提示 Workflows 也可能消耗这份额度。排名继续依据口径一致的 Workers 请求数，成功查到的零请求参与排名。 [Workers 查询接口](https://developers.cloudflare.com/analytics/graphql-api/tutorials/querying-workers-metrics/) · [Pages Functions 计费](https://developers.cloudflare.com/pages/functions/pricing/#free-plan)
+- 用户展开「更多用量」可看当日 D1 读写行数、KV 读写删和列表操作、Workers AI Neurons，以及 R2 Standard 按 UTC 日历月估算的 A/B 类操作。R2 今日存储峰值合计用 GB 显示，另列账单周期的 GB-month 免费基准。缺权限或查询失败的用量显示「未知」及原因，成功的统计项照常显示。 [D1 指标](https://developers.cloudflare.com/d1/observability/metrics-analytics/) · [KV 指标](https://developers.cloudflare.com/kv/observability/metrics-analytics/) · [R2 计费](https://developers.cloudflare.com/r2/pricing/)
 - Agent 执行 `cf-hub status --json` 时，标准输出只包含一个有效的 JSON 文档，提供统计窗口、账号和项目、用量及其口径、排名和缺失原因。未知数值用 `null` 表示，便于与零区分。
 
 ### CF-03 指定账号运行 Wrangler
@@ -52,6 +51,7 @@
 
 - 用户执行 `cf-hub ui` 后，工具启动本地 HTTP 服务，仅监听 `127.0.0.1`，默认使用 `3456` 端口，并自动打开浏览器。结束命令或关闭终端后，看板退出，终端仍可独立使用 `list`、`status` 和 `run`。
 - 看板每个账号显示一张卡片，以账号名称为标题，显示今日请求数、免费额度进度条和 Workers、Pages 项目列表。进度条按占用率变色，用量未知时显示文字原因，避免与零消耗混淆。页面可见时每分钟查询，也可手动刷新。
+- 用户在页面底部展开「其他免费服务」，看到 Queues、Durable Objects、Workflows、Vectorize、Browser Run、Turnstile 和 Email Routing 的主要免费额度或限制，并可打开官方说明。目录提供固定参考，每次刷新只查询账号用量。
 - 项目列表展示项目名称和可从 Cloudflare 确认的访问链接。Worker 的 `workers.dev` 地址关闭、项目无公开地址或权限不足时，显示对应提示。[Worker 公开地址说明](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/#manage-access-to-workersdev)
 - 用户点击账号卡片上的「复制部署命令」后，可直接粘贴 `cf-hub run '我的账号' -- deploy` 这类命令。点击仅复制，并给出结果反馈。
 
@@ -74,7 +74,7 @@
 | --- | --- | --- |
 | 全局命令与本地配置 | CF-01、CF-06 | 安装并链接后，切换到两个不同业务目录执行 `cf-hub list`。两次都列出相同的账号名称和 Account ID，且没有 Token。 |
 | 实时状态与排名 | CF-02 | 配置两个可查询的账号后运行 `status` 和 `status --json`。项目列表完整，统计窗口从当日 UTC 00:00 开始，百分比以 100,000 次为基准且标明统计口径，排名与输出的请求数一致，JSON 可直接解析。 |
-| D1 与 KV 用量 | CF-02 | 对有对应查询权限的账号，检查 D1 读取行数和 KV 读取次数。权限不足时，仅受影响的用量显示「未知」。 |
+| 扩展用量与免费服务 | CF-02、CF-04 | 在同一账号的终端和看板对照共享请求、D1、KV、Workers AI 和 R2。检查零值、权限不足、UTC 跨日和跨月，打开目录确认七个官方入口。 |
 | 局部故障 | CF-02 | 使用权限不足的 Token 查询，或让一个账号的请求超时。对应项目或数值标为未知并说明原因，其他成功结果照常显示，未知用量不进入排名。 |
 | 部署与账号隔离 | CF-03 | 关闭看板后，用两个测试账号分别运行 Wrangler，确认每次只访问指定账号。在获准后向测试账号验证一次 Workers 和一次 Pages 部署。执行前后，原终端的 Cloudflare 凭据保持一致。 |
 | 拦截冲突 | CF-03 | 用 `cf-2` 运行实际配置指向 `cf-1` 的项目。分别覆盖直接配置和 `--config` 或生成配置，确认命令显示具体冲突并在 Wrangler 运行前停止。 |

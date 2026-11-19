@@ -8,7 +8,7 @@
 
 ## 第一次使用
 
-1. 运行 `cf-hub ui`，在打开的 `http://127.0.0.1:3456` 添加 Cloudflare 账号。Token 只授权对应账号，并开通你要使用的产品权限。账号保存到 `~/.cf-hub/accounts.json`。[创建 Cloudflare API Token](https://developers.cloudflare.com/fundamentals/api/get-started/create-token/)
+1. 按下文创建 Cloudflare API Token。运行 `cf-hub ui`，打开 `http://127.0.0.1:3456`，点击「添加账号」，填写账号名称、Account ID 和 Token。校验通过后保存到 `~/.cf-hub/accounts.json`，以后关着看板也能用。
 2. 在终端按 `Ctrl+C` 关掉看板。切到任意业务项目目录执行 `cf-hub list` 和 `cf-hub status`。给 Agent 使用时可执行 `cf-hub status --json`。
 3. 确认项目和账号后，运行 `cf-hub run '我的 Cloudflare 账号' -- deploy` 部署 Workers，或运行 `cf-hub run '我的 Cloudflare 账号' -- pages deploy ./dist` 部署 Pages。把示例名称换成看板里显示的账号名称。
 
@@ -16,11 +16,32 @@
 
 卡片标题和终端命令用同一个账号名称，支持中文和空格。已有的短别名仍可以调用原账号，旧备注可作为迁移后的名称。
 
-用量按 UTC 每天零点重新统计。进度条用 100,000 次作为免费版基准。`cf-1` 实测中，Pages Functions 请求出现在单独的统计数据集里，当前看板的比例仅按 Workers 请求估算。两种请求共用免费额度。[Cloudflare Pages Functions 额度说明](https://developers.cloudflare.com/pages/functions/pricing/#free-plan)
+## 申请 API Token
+
+在 Cloudflare 控制台打开个人头像 → My Profile → API Tokens → Create Token → Custom Token。想使用归属于账号的 Token，也可从 Manage Account → API Tokens 创建。添加下表需要的权限，在 **Account Resources** 里只包含这枚 Token 对应的账号。使用域名权限时，在 **Zone Resources** 里只选涉及的站点。点击创建后复制 Token，回到 `cf-hub ui` 的账号表单粘贴保存。已有账号可点「编辑」更换 Token，留空会保留原值。 [Cloudflare 创建 Token 指引](https://developers.cloudflare.com/fundamentals/api/get-started/create-token/)
+
+| 用途 | 在 Cloudflare 里选择 | 能做什么 |
+| --- | --- | --- |
+| 看额度 | Account → Account Analytics → Read | 查看 Workers、Pages Functions、D1、KV、Workers AI 和 R2 的账号用量统计。 |
+| 看 Workers 项目 | Account → Workers Scripts → Read | 查看已部署的 Workers。 |
+| 看 Pages 项目 | Account → Cloudflare Pages → Read | 查看已部署的 Pages 项目。 |
+| 发布 Workers | Account → Workers Scripts → Edit | 发布和管理 Workers，也可查看 Workers 项目。 |
+| 发布 Pages | Account → Cloudflare Pages → Edit | 创建、发布和管理 Pages 项目，也可查看 Pages 项目。 |
+| 查询账号资料 | Account → Account Settings → Read | 读取账号设置和账号资料，供需要这些信息的命令使用。 |
+| 管理 D1 | Account → D1 → Edit | 管理数据库、执行写入和迁移。 |
+| 管理 Workers KV | Account → Workers KV Storage → Edit | 管理命名空间和键值。 |
+| 管理 R2 | Account → Workers R2 Storage → Edit | 通过 Cloudflare API 或 Wrangler 管理存储桶和对象。S3 客户端使用单独的 R2 凭证。 |
+| 配置 Worker 路由 | Zone → Workers Routes → Edit | 为已选站点创建或修改 Worker 路由。 |
+| 按域名查找站点 | Zone → Zone → Read | 让需要按域名查找站点的命令读到对应 Zone。 |
+| 直接调用 Workers AI 模型 API | Account → Workers AI → Read 和 Edit | 通过 Workers AI REST API 调用模型。单看 Neurons 统计勾选 Account Analytics Read 即可。 |
+
+**只看面板**就选前三行。**也要发布**就保留统计权限，把要发布的产品的 `Read` 换成 `Edit`，再按需要勾选其余行。Cloudflare 的权限表或 API 有时把 `Edit` 写成 `Write`，例如 `D1 Write`、`Workers Routes Write`。 [Cloudflare 权限表](https://developers.cloudflare.com/fundamentals/api/reference/permissions/) · [Analytics 权限](https://developers.cloudflare.com/analytics/graphql-api/getting-started/authentication/api-token-auth/) · [Workers AI REST API 权限](https://developers.cloudflare.com/workers-ai/get-started/rest-api/)
+
+## 看用量
+
+每日用量从 UTC 零点起算，也就是北京时间早上 8 点。Workers 和 Pages Functions 在统计可相加时共用一条 100,000 次的进度条，Workflows 也可能占用该额度。展开「更多用量」可看 D1、KV、Workers AI 和 R2。R2 操作按 UTC 日历月估算，今日存储峰值用 GB 显示，10 GB-month 是按账单周期计算的免费基准。页面底部的「其他免费服务」列出产品额度和官方入口。 [Pages Functions 额度](https://developers.cloudflare.com/pages/functions/pricing/#free-plan) · [R2 计费](https://developers.cloudflare.com/r2/pricing/)
 
 看板打开且页面可见时，每分钟查一次，也可以点「刷新」立刻查。查询只读取 Cloudflare 的统计，Workers 请求数由实际访问产生。Cloudflare 汇总用量可能延迟几分钟。Worker 访问地址最多复用两分钟的查询结果。[Workers 统计说明](https://developers.cloudflare.com/workers/observability/metrics-and-analytics/#requests)
-
-Workers AI 有独立的每日 10,000 Neurons 免费额度，在 Cloudflare 的 Workers AI 看板可以查看使用量。[Workers AI 额度](https://developers.cloudflare.com/workers-ai/platform/pricing/)
 
 ## 常见问题
 
