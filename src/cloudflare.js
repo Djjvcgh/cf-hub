@@ -48,7 +48,7 @@ class ApiError extends Error {
 
 function httpError(status, errors) {
   const codes = new Set((Array.isArray(errors) ? errors : []).map(error => error?.code));
-  if (status === 401 || [10001, 9109, 6111].some(code => codes.has(code))) return new ApiError(401, 'API Token 无效或已失效。');
+  if (status === 401 || [10001, 9106, 9109, 6111].some(code => codes.has(code))) return new ApiError(401, 'API Token 无效或已失效。');
   if (status === 403 || codes.has(10000)) return new ApiError(403, 'Token 没有此账号或接口的读取权限。');
   if (status === 404) return new ApiError(404, 'Cloudflare 找不到这个账号或资源。');
   if (status === 429) return new ApiError(429, 'Cloudflare 请求太频繁，请稍后刷新。');
