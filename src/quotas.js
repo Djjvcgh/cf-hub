@@ -2,6 +2,14 @@ export const workersFreeLimit = 100_000;
 export const workersOnlyScope = 'workers-invocations; pages-functions-separate';
 export const unverifiedScope = 'workers-invocations; pages-functions-unverified';
 
+export function rankWorkers(accounts) {
+  const known = accounts.filter(account => account.usage.workers.requests !== null);
+  const scope = known.some(account => account.usage.workers.scope === workersOnlyScope) ? workersOnlyScope : unverifiedScope;
+  return known.filter(account => account.usage.workers.scope === scope)
+    .map(({ alias, name, usage }) => ({ alias, name, requests: usage.workers.requests }))
+    .sort((a, b) => a.requests - b.requests || a.name.localeCompare(b.name));
+}
+
 export function quotaWindows(now = new Date()) {
   const end = now.toISOString();
   return {

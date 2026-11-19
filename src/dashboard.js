@@ -6,11 +6,14 @@ import { createServer } from 'node:http';
 import { accountRecord, findAccount, InputError, normalizeAccountName, publicAccount } from './accounts.js';
 import { quotaReport, quotaWindows, workersFreeLimit, workersOnlyScope } from './quotas.js';
 import { registerDashboard } from './dashboard-discovery.js';
+import { failedStatus } from './cloudflare.js';
+import { setTimeout as delay } from 'node:timers/promises';
 
 const assets = {
   '/': ['index.html', 'text/html'],
   '/app.js': ['app.js', 'text/javascript'],
   '/styles.css': ['styles.css', 'text/css'],
+  '/quotas.js': ['../src/quotas.js', 'text/javascript'],
 };
 
 class HttpError extends Error {
@@ -67,6 +70,7 @@ export function demoDashboard() {
   ];
   let pending = Promise.resolve();
   return {
+    demo: true,
     store: {
       read: async () => accounts,
       update(change) {
@@ -76,14 +80,20 @@ export function demoDashboard() {
       },
     },
     validate: async () => {},
-    status: async () => {
-      const { day, month } = quotaWindows();
-      return { demo: true, window: day, error: null, accounts: accounts.map(account => {
+    status: async (selected, now = new Date()) => {
+      const { day, month } = quotaWindows(now);
+      const rows = selected ? await selected.read() : accounts;
+      if (selected && rows[0]?.accountId === '2'.repeat(32)) await delay(2200);
+      if (selected && rows[0]?.accountId === '3'.repeat(32)) {
+        await delay(650);
+        throw new HttpError(504, '演示：连接 Cloudflare 超时。');
+      }
+      return { demo: true, window: day, error: null, accounts: rows.map(account => {
         const index = Number(account.accountId[0]) - 1;
         const requests = counts[index] === undefined ? 0 : counts[index];
         const quotas = quotaReport(month, {
           workers: requests === null ? null : { requests, scope: workersOnlyScope },
-          pagesFunctions: index === 0 ? 1_940 : 0,
+          pagesFunctions: index === 0 ? 65_000 : 0,
           d1: { rowsRead: index === 0 ? 410_000 : 0, rowsWritten: index === 0 ? 1_520 : 0 },
           kv: { read: index === 0 ? 3_400 : 0, write: index === 0 ? 48 : 0, delete: 0, list: 0 },
           neurons: index === 0 ? 3_245 : 0,
@@ -93,7 +103,7 @@ export function demoDashboard() {
         return {
           ...publicAccount(account), ...(examples[index] ?? { workers: [], pages: [] }),
           usage: {
-            workers: { requests, freeLimit: workersFreeLimit, percent: requests === null ? null : requests / (workersFreeLimit / 100), scope: 'demo' },
+            workers: { requests, freeLimit: workersFreeLimit, percent: requests === null ? null : requests / (workersFreeLimit / 100), scope: workersOnlyScope },
             d1RowsRead: quotas.d1.rowsRead.used, kvReads: quotas.kv.reads.used, quotas,
           },
           errors: requests === null ? [{ section: 'workersUsage', message: '演示：缺少统计读取权限。' }] : [],
@@ -103,7 +113,7 @@ export function demoDashboard() {
   };
 }
 
-export async function startDashboard({ store, status, validate, port = 3456, open = true, browserSession = false, discoveryKey }) {
+export async function startDashboard({ store, status, validate, demo = false, port = 3456, open = true, browserSession = false, discoveryKey }) {
   const session = randomBytes(32).toString('hex');
   let tabs = 0;
   let idleTimer;
@@ -144,9 +154,21 @@ export async function startDashboard({ store, status, validate, port = 3456, ope
         return;
       }
       if (req.method === 'GET' && path === '/api/accounts') {
-        return send(res, 200, { session, accounts: (await store.read()).map(account => ({ ...publicAccount(account), hasToken: true })) });
+        return send(res, 200, { session, demo, queryTime: new Date().toISOString(), accounts: (await store.read()).map(account => ({ ...publicAccount(account), hasToken: true })) });
       }
-      if (req.method === 'GET' && path === '/api/status') return send(res, 200, await status());
+      if (req.method === 'GET' && path === '/api/status') return send(res, 200, await status(store));
+      if (req.method === 'GET' && path.startsWith('/api/status/')) {
+        let name;
+        try { name = decodeURIComponent(path.slice('/api/status/'.length)); } catch {}
+        const account = findAccount(await store.read(), name);
+        if (!account) throw new HttpError(404, '账号不存在，请刷新列表。');
+        const at = new URL(req.url, `http://${host}`).searchParams.get('at');
+        const now = at ? new Date(at) : new Date();
+        if (!Number.isFinite(now.valueOf())) throw new HttpError(400, '无效的查询时间。');
+        const report = await status({ read: async () => [account] }, now);
+        if (failedStatus(report)) throw new HttpError(502, report.error || report.accounts[0].errors[0]?.message || '账号查询失败。');
+        return send(res, 200, { account: report.accounts[0], window: report.window });
+      }
 
       const selector = path?.startsWith('/api/accounts/') ? path.slice('/api/accounts/'.length) : '';
       const add = path === '/api/accounts' && req.method === 'POST';

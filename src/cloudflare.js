@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { Agent, request } from 'node:https';
 import { promisify } from 'node:util';
 import { publicAccount } from './accounts.js';
-import { quotaReport, quotaWindows, unverifiedScope, workersFreeLimit, workersOnlyScope } from './quotas.js';
+import { quotaReport, quotaWindows, rankWorkers, unverifiedScope, workersFreeLimit, workersOnlyScope } from './quotas.js';
 
 const exec = promisify(execFile);
 const base = 'https://api.cloudflare.com/client/v4';
@@ -350,12 +350,7 @@ export async function createCloudflare({ transport } = {}) {
       } catch (error) {
         return { window, accounts: [], ranking: [], error: error.message };
       }
-      const known = accounts.filter(account => account.usage.workers.requests !== null);
-      const rankingScope = known.some(account => account.usage.workers.scope === workersOnlyScope) ? workersOnlyScope : unverifiedScope;
-      const ranking = known.filter(account => account.usage.workers.scope === rankingScope)
-        .map(({ alias, name, usage }) => ({ alias, name, requests: usage.workers.requests }))
-        .sort((a, b) => a.requests - b.requests || a.name.localeCompare(b.name));
-      return { window, accounts, ranking, error: null };
+      return { window, accounts, ranking: rankWorkers(accounts), error: null };
     },
     async validate(account) {
       const listing = async path => {

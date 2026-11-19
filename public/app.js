@@ -1,3 +1,5 @@
+import { rankWorkers } from './quotas.js';
+
 const select = selector => document.querySelector(selector);
 const grid = select('#accounts');
 const feedback = select('#feedback');
@@ -8,7 +10,8 @@ const confirmDelete = select('#confirm-delete');
 const fields = form.elements;
 let session;
 let editing;
-let currentReport;
+const cards = new Map();
+let demo = false;
 let refreshSequence = 0;
 const refreshEvery = 60_000;
 const numberFormat = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 3 });
@@ -157,16 +160,8 @@ function moreUsage({ d1, kv, workersAi, r2 }, errors) {
   return details;
 }
 
-function card(account, expanded) {
-  const wrapper = element('article', undefined, 'card');
-  const heading = element('div', undefined, 'card-top');
-  const names = element('div');
-  names.append(element('h2', account.name));
-  const edit = element('button', '编辑');
-  edit.setAttribute('aria-label', `编辑 ${account.name}`);
-  edit.addEventListener('click', () => openEditor(account));
-  heading.append(names, edit);
-
+function renderUsage(container, account) {
+  const expanded = container.querySelector('.more-usage')?.open;
   const { requests } = account.usage.quotas;
   const usage = element('div', undefined, 'usage');
   const usageTop = element('div', undefined, 'usage-top');
@@ -191,10 +186,23 @@ function card(account, expanded) {
   usage.append(element('p', 'Workflows 也可能占用这份额度。', 'hint'));
   const details = moreUsage(account.usage.quotas, errors);
   details.dataset.account = account.name;
-  details.open = expanded.has(account.name);
+  details.open = Boolean(expanded);
 
   const projects = element('div', undefined, 'projects');
   projects.append(projectList('Workers', account.workers, errors.workers), projectList('Pages', account.pages, errors.pages));
+  container.replaceChildren(usage, details, projects);
+}
+
+function createCard(account) {
+  const wrapper = element('article', undefined, 'card');
+  const heading = element('div', undefined, 'card-top');
+  const edit = element('button', '编辑');
+  edit.setAttribute('aria-label', `编辑 ${account.name}`);
+  edit.addEventListener('click', () => openEditor(account));
+  heading.append(element('h2', account.name), edit);
+  const notice = element('p', '', 'hint card-status');
+  notice.setAttribute('role', 'status');
+  const content = element('div');
   const copy = element('button', '复制部署命令', 'copy');
   const command = deployCommand(account.name);
   copy.addEventListener('click', async () => {
@@ -206,35 +214,70 @@ function card(account, expanded) {
       message(feedback, `复制失败，可手动复制：${command}`, true);
     }
   });
-  wrapper.append(heading, usage, details, projects, copy);
-  return wrapper;
+  wrapper.append(heading, notice, content, copy);
+  return { wrapper, notice, content, accountId: account.accountId, name: account.name };
 }
 
-function render(report) {
-  currentReport = report;
-  select('#demo').hidden = !report.demo;
-  const ranking = new Map((report.ranking ?? []).map((entry, index) => [entry.alias, index]));
-  const accounts = [...report.accounts].sort((a, b) => (ranking.get(a.alias) ?? Infinity) - (ranking.get(b.alias) ?? Infinity));
-  const expanded = new Set([...grid.querySelectorAll('.more-usage[open]')].map(details => details.dataset.account));
-  select('#summary').textContent = `${accounts.length} 个账号 · 每日用量从北京时间 08:00 起算${accounts.length && !report.demo ? ' · 每分钟自动查询' : ''}`;
-  select('#updated').textContent = report.window?.end ? `查询于 ${new Date(report.window.end).toLocaleTimeString('zh-CN', { hour12: false })}` : '';
-  grid.replaceChildren(...accounts.map(account => card(account, expanded)));
-  if (accounts.length === 0 && !report.error) grid.append(element('p', '还没有账号，点击「添加账号」开始。', 'card empty'));
-  message(feedback, report.error || '', Boolean(report.error));
+function sortCards() {
+  const rows = [...cards.values()];
+  const reports = rows.filter(row => row.latest).map(row => row.latest);
+  const scores = select('#sort').value === 'workers'
+    ? new Map(rankWorkers(reports).map(entry => [entry.name, entry.requests]))
+    : new Map(reports.map(account => [account.name, account.usage.quotas.requests.used]));
+  rows.sort((a, b) => (scores.get(a.name) ?? Infinity) - (scores.get(b.name) ?? Infinity) || a.name.localeCompare(b.name));
+  rows.forEach(({ wrapper }, index) => {
+    if (grid.children[index] !== wrapper) grid.insertBefore(wrapper, grid.children[index] ?? null);
+  });
 }
 
 async function load({ background = false } = {}) {
   const sequence = ++refreshSequence;
   refresh.disabled = true;
-  if (!background || !currentReport) message(feedback, '正在查询账号…');
+  if (!background) message(feedback, '正在读取账号…');
   try {
-    const report = await api('/api/status');
-    if (sequence === refreshSequence) render(report);
-  } catch (error) {
-    if (sequence === refreshSequence) {
-      message(feedback, error.message, true);
-      if (!currentReport) grid.replaceChildren();
+    const directory = await api('/api/accounts');
+    if (sequence !== refreshSequence) return;
+    session = directory.session;
+    demo = directory.demo;
+    select('#demo').hidden = !demo;
+    const { accounts } = directory;
+    const ids = new Map(accounts.map(account => [account.name, account.accountId]));
+    for (const [name, row] of cards) {
+      if (ids.get(name) !== row.accountId) {
+        row.wrapper.remove();
+        cards.delete(name);
+      }
     }
+    grid.querySelector('.empty')?.remove();
+    if (!accounts.length) grid.append(element('p', '还没有账号，点击「添加账号」开始。', 'card empty'));
+    select('#summary').textContent = `${accounts.length} 个账号 · 每日用量从北京时间 08:00 起算${accounts.length && !demo ? ' · 每分钟自动查询' : ''}`;
+    message(feedback, '');
+    await Promise.all(accounts.map(async account => {
+      let row = cards.get(account.name);
+      if (!row) {
+        row = createCard(account);
+        cards.set(account.name, row);
+        grid.append(row.wrapper);
+      }
+      const last = row.time ? ` · 上次查询 ${row.time}` : '';
+      message(row.notice, '查询中…' + last);
+      try {
+        const result = await api(`/api/status/${encodeURIComponent(account.name)}?at=${encodeURIComponent(directory.queryTime)}`);
+        if (sequence !== refreshSequence) return;
+        if (result.account.accountId !== row.accountId || result.account.name !== row.name) throw new Error('账号已变更，请刷新列表。');
+        renderUsage(row.content, result.account);
+        row.latest = result.account;
+        row.time = new Date(result.window.end).toLocaleString('zh-CN', { hour12: false });
+        message(row.notice, `查询于 ${row.time}`);
+      } catch (error) {
+        if (sequence !== refreshSequence) return;
+        row.latest = null;
+        message(row.notice, error.message + last, true);
+      }
+    }));
+    if (sequence === refreshSequence) sortCards();
+  } catch (error) {
+    if (sequence === refreshSequence) message(feedback, error.message, true);
   } finally {
     if (sequence === refreshSequence) refresh.disabled = false;
   }
@@ -244,6 +287,7 @@ select('#add').addEventListener('click', () => openEditor());
 select('#close-editor').addEventListener('click', () => editor.close());
 editor.addEventListener('close', () => { fields.apiToken.value = ''; });
 refresh.addEventListener('click', () => load());
+select('#sort').addEventListener('change', () => { if (!refresh.disabled) sortCards(); });
 form.addEventListener('submit', async event => {
   event.preventDefault();
   const submit = form.querySelector('[type=submit]');
@@ -276,7 +320,7 @@ confirmDelete.addEventListener('close', async () => {
 });
 void load();
 setInterval(() => {
-  if (document.visibilityState === 'visible' && !editor.open && !refresh.disabled && !currentReport?.demo) {
+  if (document.visibilityState === 'visible' && !editor.open && !refresh.disabled && !demo) {
     void load({ background: true });
   }
 }, refreshEvery);

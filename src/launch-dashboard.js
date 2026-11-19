@@ -8,7 +8,7 @@ async function startBrowserSession() {
   const store = createAccountStore();
   const cloudflare = await createCloudflare();
   const options = {
-    store, status: () => cloudflare.status(store), validate: cloudflare.validate,
+    store, status: cloudflare.status, validate: cloudflare.validate,
     open: false, browserSession: true, discoveryKey: accountsPath,
   };
   try {

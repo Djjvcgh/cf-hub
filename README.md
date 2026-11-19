@@ -45,6 +45,8 @@
 
 看板打开且页面可见时，每分钟查一次，也可以点「刷新」立刻查。查询只读取 Cloudflare 的统计，Workers 请求数由实际访问产生。Cloudflare 汇总用量可能延迟几分钟。Worker 访问地址最多复用两分钟的查询结果。[Workers 统计说明](https://developers.cloudflare.com/workers/observability/metrics-and-analytics/#requests)
 
+打开看板后会先看到本地账号，项目和用量查完一张显示一张。刷新时可以继续查看上次结果和查询时间。默认按 Workers 请求排序，想比较卡片上的进度条，可选「已统计共享请求从少到多」。每轮查完才调整位置，未知的排在末尾。
+
 ## 常见问题
 
 | 遇到的问题 | 怎么处理 |

@@ -34,7 +34,7 @@ try {
     } else {
       const { createCloudflare } = await import('../src/cloudflare.js');
       const cloudflare = await createCloudflare();
-      const { url, server } = await startDashboard({ store, discoveryKey: accountsPath, status: () => cloudflare.status(store), validate: cloudflare.validate });
+      const { url, server } = await startDashboard({ store, discoveryKey: accountsPath, status: cloudflare.status, validate: cloudflare.validate });
       server.once('close', cloudflare.close);
       console.log(`看板已启动：${url}`);
     }

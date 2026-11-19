@@ -150,11 +150,22 @@ button:disabled {
 }
 
 .report-line {
+  flex-wrap: wrap;
   min-height: 25px;
   margin-bottom: 11px;
   color: var(--muted);
   font-size: 13px;
 }
+
+#sort {
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  font: inherit;
+}
+
+.card-status { margin-block: 7px; }
 
 .grid {
   display: grid;

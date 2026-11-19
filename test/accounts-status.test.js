@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { createAccountStore, findAccount } from '../src/accounts.js';
 import { createCloudflare, failedStatus } from '../src/cloudflare.js';
-import { startDashboard } from '../src/dashboard.js';
+import { demoDashboard, startDashboard } from '../src/dashboard.js';
 
 const first = { name: '个人 Cloudflare 账号', alias: 'cf-1', accountId: '1'.repeat(32), apiToken: 'private-token-1' };
 const second = { name: '测试账号', alias: 'cf-2', accountId: '2'.repeat(32), apiToken: 'private-token-2' };
@@ -315,4 +315,25 @@ test('browser-session dashboard stops when the last dashboard tab disconnects', 
   tab.abort();
   await closed;
   assert.equal(server.listening, false);
+});
+
+test('per-account queries share a time window and return independently', async t => {
+  const { server, url } = await startDashboard({ ...demoDashboard(), port: 0, open: false });
+  t.after(() => server.close());
+  const { accounts, queryTime } = await (await fetch(url + '/api/accounts')).json();
+  const read = index => fetch(url + '/api/status/' + encodeURIComponent(accounts[index].name) + '?at=' + encodeURIComponent(queryTime));
+  let finished = false;
+  const slow = read(1).then(async r => { finished = true; return r.json(); });
+  const fast = await (await read(0)).json();
+  assert.equal(finished, false);
+  const failure = await read(2);
+  assert.equal(failure.status, 504);
+  assert.match((await failure.json()).error, /超时/);
+  const other = await slow;
+  assert.equal(fast.window.end, queryTime);
+  assert.deepEqual(fast.window, other.window);
+  assert.ok(fast.account.usage.workers.requests < other.account.usage.workers.requests);
+  assert.ok(fast.account.usage.quotas.requests.used > other.account.usage.quotas.requests.used);
+  assert.equal((await fetch(url + '/api/status/missing')).status, 404);
+  assert.ok(!JSON.stringify(fast).includes('apiToken'));
 });
