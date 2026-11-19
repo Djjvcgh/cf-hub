@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>账号总览 · cf-hub</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <header class="bar"><div class="shell brand"><span class="mark" aria-hidden="true">▰</span>cf-hub<span class="local"><i></i> 本机看板</span></div></header>
+  <main class="shell">
+    <div class="intro">
+      <div><h1>账号总览</h1><p class="muted">Workers、Pages 与今日用量</p></div>
+      <div class="actions"><button id="refresh" type="button">↻&nbsp; 刷新</button><button class="primary" id="add" type="button">＋ 添加账号</button></div>
+    </div>
+    <div id="demo" class="notice" hidden>演示数据 · 表单修改仅在这次试用期间保留</div>
+    <div class="report-line"><span id="summary"></span><span id="updated"></span></div>
+    <p id="feedback" role="status" hidden></p>
+    <section id="accounts" class="grid" aria-label="Cloudflare 账号"></section>
+  </main>
+  <dialog id="editor">
+    <form id="account-form">
+      <div class="dialog-head"><h2 id="editor-title"></h2><button class="icon" id="close-editor" type="button" aria-label="关闭">×</button></div>
+      <label>别名<input name="alias" placeholder="cf-1" required pattern="[a-z0-9][a-z0-9\-]{0,62}" maxlength="63"></label>
+      <label>备注 <span>选填</span><input name="remark" maxlength="500" placeholder="例如：个人站点"></label>
+      <label>Account ID<input name="accountId" required pattern="[a-fA-F0-9]{32}" maxlength="32" spellcheck="false"></label>
+      <label>API Token<input name="apiToken" type="password" autocomplete="new-password" maxlength="512" spellcheck="false"></label>
+      <p id="form-error" class="error" role="alert" hidden></p>
+      <div class="dialog-actions"><button id="delete-account" class="danger" type="button">移除账号</button><button class="primary" type="submit">保存账号</button></div>
+    </form>
+  </dialog>
+  <dialog id="confirm-delete"><form method="dialog"><h2>移除账号</h2><p id="delete-description"></p><div class="actions"><button value="cancel">取消</button><button value="remove" class="danger">确认移除</button></div></form></dialog>
+</body>
+</html>
