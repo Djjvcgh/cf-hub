@@ -54,3 +54,7 @@
 | 查不到用量或提示权限不足 | 看对应账号下的错误提示。用量查询要给该账号的 Token 开通 Account Analytics Read。部署权限按项目另行开启。 |
 | 请求连不上 Cloudflare | 确认网络能访问 Cloudflare。程序优先读取 `HTTPS_PROXY`、`HTTP_PROXY` 和 `NO_PROXY`，Windows 上也会读取手动系统代理。如果当前网络用的是自动代理脚本，可在当前终端显式设置代理地址。 |
 | 部署提示账号冲突 | 打开提示里的配置文件，核对账号和所选名称后再执行。如果提示来自 `.env`，移除其中指定账号或凭据的设置，让这次命令选择账号。 |
+
+## 项目文档
+
+[需求](docs/PRD.md) · [架构](docs/architecture.md) · [功能设计](docs/design.md) · [任务列表](docs/tasklists.md)

@@ -5,7 +5,7 @@
 | 版本 | v1.0 首版需求 |
 | 更新日期 | 2026-11-19 |
 | 状态 | 已实现，单账号联机验收通过 |
-| 决定与理由 | [项目决策记录](docs/decisions-cf-hub.md) |
+| 决定与理由 | [项目决策记录](decisions-cf-hub.md) |
 
 ## 1. 背景与目标
 
@@ -50,6 +50,7 @@
 ### CF-04 按需看板与项目入口
 
 - 用户执行 `cf-hub ui` 后，工具启动本地 HTTP 服务，仅监听 `127.0.0.1`，默认使用 `3456` 端口，并自动打开浏览器。结束命令或关闭终端后，看板退出，终端仍可独立使用 `list`、`status` 和 `run`。
+- Windows 用户双击根目录的 [cf-hub.bat](../cf-hub.bat)，在默认浏览器打开看板后，脚本的命令窗口退出。关闭最后一个看板标签页后，本地服务自动停止。
 - 看板每个账号显示一张卡片，以账号名称为标题，显示今日请求数、免费额度进度条和 Workers、Pages 项目列表。进度条按占用率变色，用量未知时显示文字原因，避免与零消耗混淆。页面可见时每分钟查询，也可手动刷新。
 - 用户在页面底部展开「其他免费服务」，看到 Queues、Durable Objects、Workflows、Vectorize、Browser Run、Turnstile 和 Email Routing 的主要免费额度或限制，并可打开官方说明。目录提供固定参考，每次刷新只查询账号用量。
 - 项目列表展示项目名称和可从 Cloudflare 确认的访问链接。Worker 的 `workers.dev` 地址关闭、项目无公开地址或权限不足时，显示对应提示。[Worker 公开地址说明](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/#manage-access-to-workersdev)
