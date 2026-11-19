@@ -22,8 +22,9 @@
   <dialog id="editor" aria-labelledby="editor-title">
     <form id="account-form">
       <div class="dialog-head"><h2 id="editor-title"></h2><button class="icon" id="close-editor" type="button" aria-label="关闭">×</button></div>
-      <label>别名<input name="alias" placeholder="cf-1" required pattern="[a-z0-9][a-z0-9\-]{0,62}" maxlength="63"></label>
-      <label>备注 <span>选填</span><input name="remark" maxlength="500" placeholder="例如：个人站点"></label>
+      <label>别名<input name="alias" placeholder="例如 my-site" aria-describedby="alias-hint" required pattern="[a-z0-9][a-z0-9\-]{0,62}" maxlength="63"></label>
+      <p class="hint" id="alias-hint">用于终端命令，可用小写字母、数字和连字符。</p>
+      <label>账号名称或备注 <span>选填</span><input name="remark" maxlength="500" placeholder="可填 Cloudflare 上的完整账号名称"></label>
       <label>Account ID<input name="accountId" required pattern="[a-fA-F0-9]{32}" maxlength="32" spellcheck="false"></label>
       <label>API Token<input name="apiToken" type="password" autocomplete="new-password" maxlength="512" spellcheck="false"></label>
       <p id="form-error" class="error" role="alert" hidden></p>

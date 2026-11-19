@@ -14,6 +14,8 @@
 
 想先看看界面，可以跑 `cf-hub ui --demo`。表单修改随演示关闭而清除。想先验证 Workers 配置，可以在业务项目里运行 `cf-hub run cf-2 -- deploy --dry-run --outdir ./cf-hub-dry-run`，查看本地打包结果。
 
+别名是终端命令里的短名，例如 `my-site`。Cloudflare 上的完整账号名称可以填到「账号名称或备注」，保存后会显示在卡片上。
+
 用量按 UTC 每天零点重新统计。Workers 进度条用 100,000 次作为免费版基准，Pages Functions 的覆盖范围目前标为未确认。
 
 ## 常见问题
