@@ -6,7 +6,7 @@
 
 准备 [Node.js 24 LTS](https://nodejs.org/en/about/previous-releases)，在 cf-hub 项目目录执行 `npm install && npm link`。如果 PowerShell 不支持 `&&`，分两行执行，等 `npm install` 成功后再执行 `npm link`。
 
-**Windows 快捷启动**：双击根目录的 [cf-hub.bat](cf-hub.bat)。默认浏览器会打开看板，启动窗口随即退出。关闭最后一个看板标签页后，本地看板约 5 秒后停止。快捷启动优先用 `127.0.0.1:3456`，端口占用时会自动选一个可用的本地端口。
+**Windows 快捷启动**：双击根目录的 [cf-hub.bat](cf-hub.bat)。默认浏览器会打开看板，启动窗口随即退出。再次双击会复用已经打开的真实看板。由快捷启动创建的看板在最后一个标签页关闭约 5 秒后停止。首次启动优先用 `127.0.0.1:3456`，端口占用时会自动选一个可用的本地端口。
 
 ## 第一次使用
 

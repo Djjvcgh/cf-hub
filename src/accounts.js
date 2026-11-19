@@ -4,6 +4,8 @@ import { mkdir, readFile, rename, rm, writeFile, chmod, lstat } from 'node:fs/pr
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
+import { DatabaseSync } from 'node:sqlite';
+import { setTimeout as delay } from 'node:timers/promises';
 
 const exec = promisify(execFile);
 export const accountsPath = join(homedir(), '.cf-hub', 'accounts.json');
@@ -105,21 +107,44 @@ export function createAccountStore(path = accountsPath) {
 
   function update(change) {
     const write = pending.then(async () => {
-      const next = readRecords(await change(await read()));
       const dir = dirname(path);
       const temp = join(dir, `.accounts-${randomUUID()}.tmp`);
+      let lock;
       try {
         await mkdir(dir, { recursive: true, mode: 0o700 });
         if (!(await lstat(dir)).isDirectory()) throw new Error('账号目录必须是普通目录。');
         await protectDirectory(dir);
-        await writeFile(temp, `${JSON.stringify(next, null, 2)}\n`, { flag: 'wx', mode: 0o600, flush: true });
-        await rename(temp, path);
+        // SQLite holds an OS file lock. Closing the connection or exiting the process releases it.
+        lock = new DatabaseSync(`${path}.lock`);
+        const deadline = Date.now() + 60_000;
+        for (;;) {
+          try {
+            lock.exec('BEGIN IMMEDIATE');
+            break;
+          } catch (error) {
+            if (error.errcode !== 5) throw error;
+            if (Date.now() >= deadline) throw new InputError('另一个窗口仍在保存账号，请稍后重试。');
+            await delay(50);
+          }
+        }
       } catch (error) {
-        throw new Error(`无法保存账号配置 ${path}，请检查目录权限。`, { cause: error });
+        lock?.close();
+        if (error instanceof InputError) throw error;
+        throw new Error(`无法锁定账号配置 ${path}，请检查目录权限。`, { cause: error });
+      }
+      try {
+        const next = readRecords(await change(await read()));
+        try {
+          await writeFile(temp, `${JSON.stringify(next, null, 2)}\n`, { flag: 'wx', mode: 0o600, flush: true });
+          await rename(temp, path);
+        } catch (error) {
+          throw new Error(`无法保存账号配置 ${path}，请检查目录权限。`, { cause: error });
+        }
+        return next;
       } finally {
+        lock.close();
         await rm(temp, { force: true }).catch(() => {});
       }
-      return next;
     });
     pending = write.catch(() => {});
     return write;

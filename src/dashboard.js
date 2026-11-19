@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { accountRecord, findAccount, InputError, normalizeAccountName, publicAccount } from './accounts.js';
 import { quotaReport, quotaWindows, workersFreeLimit, workersOnlyScope } from './quotas.js';
+import { registerDashboard } from './dashboard-discovery.js';
 
 const assets = {
   '/': ['index.html', 'text/html'],
@@ -102,12 +103,13 @@ export function demoDashboard() {
   };
 }
 
-export async function startDashboard({ store, status, validate, port = 3456, open = true, browserSession = false }) {
+export async function startDashboard({ store, status, validate, port = 3456, open = true, browserSession = false, discoveryKey }) {
   const session = randomBytes(32).toString('hex');
   let tabs = 0;
   let idleTimer;
 
   function closeWhenIdle(delay) {
+    clearTimeout(idleTimer);
     idleTimer = setTimeout(() => server.close(), delay).unref();
   }
 
@@ -187,6 +189,22 @@ export async function startDashboard({ store, status, validate, port = 3456, ope
     throw error;
   });
   const url = `http://127.0.0.1:${server.address().port}`;
+  if (discoveryKey && process.platform === 'win32') {
+    let registration;
+    try {
+      registration = await registerDashboard(discoveryKey, url, () => {
+        if (browserSession && tabs === 0) closeWhenIdle(60_000);
+      });
+    } catch (error) {
+      server.close();
+      throw error;
+    }
+    if (registration.close) server.once('close', registration.close);
+    else if (browserSession) {
+      await new Promise(resolve => server.close(resolve));
+      return { url: registration.url, reused: true };
+    }
+  }
   if (browserSession) {
     closeWhenIdle(60_000);
     server.once('close', () => clearTimeout(idleTimer));

@@ -1,6 +1,6 @@
 import { fork } from 'node:child_process';
 import { once } from 'node:events';
-import { createAccountStore } from './accounts.js';
+import { accountsPath, createAccountStore } from './accounts.js';
 import { createCloudflare } from './cloudflare.js';
 import { openBrowser, startDashboard } from './dashboard.js';
 
@@ -9,14 +9,15 @@ async function startBrowserSession() {
   const cloudflare = await createCloudflare();
   const options = {
     store, status: () => cloudflare.status(store), validate: cloudflare.validate,
-    open: false, browserSession: true,
+    open: false, browserSession: true, discoveryKey: accountsPath,
   };
   try {
     const app = await startDashboard(options).catch(error => {
       if (error.code !== 'EADDRINUSE') throw error;
       return startDashboard({ ...options, port: 0 });
     });
-    app.server.once('close', cloudflare.close);
+    if (app.reused) cloudflare.close();
+    else app.server.once('close', cloudflare.close);
     return app.url;
   } catch (error) {
     cloudflare.close();

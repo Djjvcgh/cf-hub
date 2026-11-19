@@ -26,7 +26,7 @@
 
 ## 3. 约定与取舍
 
-- **本地文件存储。** `~/.cf-hub/accounts.json` 是唯一账号来源。看板依次处理修改，先写同目录的临时文件再替换原文件，命令读取到的始终是一份完整配置。凭据文件和临时文件都使用当前用户的私有权限。[Windows 文件权限](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/icacls)
+- **本地文件存储。** `~/.cf-hub/accounts.json` 保存账号。所有看板通过相邻的 `accounts.json.lock` 协调写入，使用 Node.js 自带的 SQLite 取得系统文件锁后才读取、修改并替换 JSON。进程退出时系统释放锁。锁文件可以一直保留，其中没有账号数据。凭据文件和临时文件都使用当前用户的私有权限。[Windows 文件权限](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/icacls)
 - **固定 Wrangler 版本。** 由 cf-hub 自己记录依赖版本，安装时一次备齐。执行时在 cf-hub 安装目录选用已安装的 Wrangler，把业务项目目录明确交给 Wrangler。依赖升级时一起复验配置选择和参数传递。代价是个别业务项目若依赖其他 Wrangler 版本的专用行为，需要先核对兼容性。[npm exec 的包选择](https://docs.npmjs.com/cli/v11/commands/npm-exec/) · [Wrangler 配置读取接口](https://github.com/cloudflare/workers-sdk/blob/main/packages/wrangler/src/api/integrations/platform/index.ts)
 - **进程级凭据。** 查询使用账号记录里的 Token，请求目标仅为 Cloudflare API。部署凭据只出现在对应 Wrangler 的运行环境中。可信边界包含本机用户和要部署的业务项目，Wrangler 执行的项目构建命令也处在这次运行环境内。[Wrangler 环境变量](https://developers.cloudflare.com/workers/wrangler/system-environment-variables/) · [自定义构建](https://developers.cloudflare.com/workers/wrangler/custom-builds/)
 - **按需联网。** Cloudflare 请求使用独立的 HTTPS 连接配置，代理变量只作为网络设置读取。Windows 手动设置的代理由本机适配层读取，具体代理优先顺序见 [功能设计](design.md#4-代理与错误提示)。[Node.js 代理](https://nodejs.org/download/release/v24.22.1/docs/api/http.html#built-in-proxy-support) · [Windows 用户代理配置](https://learn.microsoft.com/en-us/windows/win32/winhttp/setting-wininet-proxy-configurations-in-winhttp)

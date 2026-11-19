@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { createAccountStore, findAccount } from '../src/accounts.js';
+import { accountsPath, createAccountStore, findAccount } from '../src/accounts.js';
 
 const [command, ...args] = process.argv.slice(2);
 const store = createAccountStore();
@@ -34,7 +34,7 @@ try {
     } else {
       const { createCloudflare } = await import('../src/cloudflare.js');
       const cloudflare = await createCloudflare();
-      const { url, server } = await startDashboard({ store, status: () => cloudflare.status(store), validate: cloudflare.validate });
+      const { url, server } = await startDashboard({ store, discoveryKey: accountsPath, status: () => cloudflare.status(store), validate: cloudflare.validate });
       server.once('close', cloudflare.close);
       console.log(`看板已启动：${url}`);
     }

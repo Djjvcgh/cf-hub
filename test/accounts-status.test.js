@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
+import { spawn } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, rmdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -17,6 +18,7 @@ async function localStore(t) {
   const path = join(directory, 'accounts.json');
   t.after(async () => {
     await rm(path, { force: true });
+    await rm(`${path}.lock`, { force: true });
     for (const dir of [directory, root]) await rmdir(dir).catch(error => { if (error.code !== 'ENOENT') throw error; });
   });
   return { path, store: createAccountStore(path) };
@@ -45,6 +47,56 @@ test('previous account files keep resolving old selectors and promote a saved re
   assert.equal(findAccount(accounts, first.alias), account);
   assert.equal(account.apiToken, first.apiToken);
   assert.ok(!JSON.parse(await readFile(path, 'utf8'))[0].name);
+});
+
+test('independent dashboards serialize additions and reject duplicate names', async t => {
+  const { path, store } = await localStore(t);
+  const clients = await Promise.all([0, 1].map(async () => {
+    const { url, server } = await startDashboard({
+      port: 0, open: false, store: createAccountStore(path), validate: async () => {},
+    });
+    t.after(() => server.close());
+    const { session } = await (await fetch(url + '/api/accounts')).json();
+    return account => fetch(url + '/api/accounts', {
+      method: 'POST', body: JSON.stringify(account),
+      headers: { Origin: url, 'Content-Type': 'application/json', 'X-CF-Hub-Session': session },
+    });
+  }));
+  const added = await Promise.all([clients[0](first), clients[1](second)]);
+  assert.deepEqual(added.map(r => r.status), [201, 201]);
+  assert.deepEqual((await store.read()).map(a => a.name).sort(), [first.name, second.name].sort());
+  const duplicate = { ...first, name: '第三个账号' };
+  const results = await Promise.all(clients.map(post => post(duplicate)));
+  assert.deepEqual(results.map(r => r.status).sort(), [201, 409]);
+  assert.match((await results.find(r => r.status === 409).json()).error, /名称/);
+});
+
+test('a stopped writer releases the account lock', { timeout: 15000 }, async t => {
+  const { path, store } = await localStore(t);
+  const child = spawn(process.execPath, ['--input-type=module', '-e', `
+    import { createAccountStore } from './src/accounts.js';
+    await createAccountStore(process.argv[1]).update(async () => {
+      process.send('locked');
+      await new Promise(() => setInterval(() => {}, 1000));
+    });`, path], { cwd: new URL('../', import.meta.url), stdio: ['ignore', 'ignore', 'inherit', 'ipc'] });
+  t.after(() => child.kill());
+  await once(child, 'message');
+  const other = store.update(rows => [...rows, second]);
+  const exit = once(child, 'exit');
+  child.kill();
+  await exit;
+  await other;
+  assert.equal((await store.read())[0].name, second.name);
+});
+
+test('a second shortcut reuses the registered dashboard on its assigned port', { skip: process.platform !== 'win32' }, async t => {
+  const { path } = await localStore(t);
+  const options = { discoveryKey: path, port: 0, open: false, browserSession: true };
+  const firstWindow = await startDashboard(options);
+  t.after(() => firstWindow.server.close());
+  const secondWindow = await startDashboard(options);
+  assert.equal(secondWindow.reused, true);
+  assert.equal(secondWindow.url, firstWindow.url);
 });
 
 test('status returns zero, pagination and confirmed links independently of failed account metrics', async () => {
