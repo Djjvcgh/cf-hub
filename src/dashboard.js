@@ -96,6 +96,7 @@ export async function startDashboard({ store, status, validate, port = 3456, ope
     const path = req.url?.split('?')[0];
     try {
       const asset = Object.hasOwn(assets, path) && assets[path];
+      if (req.method === 'GET' && path === '/favicon.ico') return res.writeHead(204).end();
       if (req.method === 'GET' && asset) {
         const [file, type] = asset;
         return send(res, 200, await readFile(new URL(`../public/${file}`, import.meta.url)), type);

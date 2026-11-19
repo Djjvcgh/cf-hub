@@ -19,7 +19,7 @@
     <p id="feedback" role="status" hidden></p>
     <section id="accounts" class="grid" aria-label="Cloudflare 账号"></section>
   </main>
-  <dialog id="editor">
+  <dialog id="editor" aria-labelledby="editor-title">
     <form id="account-form">
       <div class="dialog-head"><h2 id="editor-title"></h2><button class="icon" id="close-editor" type="button" aria-label="关闭">×</button></div>
       <label>别名<input name="alias" placeholder="cf-1" required pattern="[a-z0-9][a-z0-9\-]{0,62}" maxlength="63"></label>
@@ -30,6 +30,6 @@
       <div class="dialog-actions"><button id="delete-account" class="danger" type="button">移除账号</button><button class="primary" type="submit">保存账号</button></div>
     </form>
   </dialog>
-  <dialog id="confirm-delete"><form method="dialog"><h2>移除账号</h2><p id="delete-description"></p><div class="actions"><button value="cancel">取消</button><button value="remove" class="danger">确认移除</button></div></form></dialog>
+  <dialog id="confirm-delete" aria-labelledby="delete-title"><form method="dialog"><h2 id="delete-title">移除账号</h2><p id="delete-description"></p><div class="actions"><button value="cancel">取消</button><button value="remove" class="danger">确认移除</button></div></form></dialog>
 </body>
 </html>

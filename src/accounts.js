@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, rename, rm, writeFile, chmod } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, writeFile, chmod, lstat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
@@ -31,27 +31,26 @@ export function publicAccount({ alias, remark, accountId }) {
   return { alias, remark, accountId };
 }
 
-async function protect(path, directory) {
+async function protectDirectory(path) {
   if (process.platform !== 'win32') {
-    await chmod(path, directory ? 0o700 : 0o600);
+    await chmod(path, 0o700);
     return;
   }
   const script = `
     $ErrorActionPreference = 'Stop'
     $path = $env:CF_HUB_ACL_PATH
     $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
-    $acl = Get-Acl -LiteralPath $path
+    $acl = [IO.Directory]::GetAccessControl($path, [Security.AccessControl.AccessControlSections]::Access)
     $acl.SetAccessRuleProtection($true, $false)
     foreach ($rule in @($acl.GetAccessRules($true, $false, [Security.Principal.SecurityIdentifier]))) {
       $acl.RemoveAccessRuleSpecific($rule)
     }
-    $inherit = [Security.AccessControl.InheritanceFlags]::None
-    if ($env:CF_HUB_ACL_DIRECTORY -eq '1') { $inherit = 'ContainerInherit, ObjectInherit' }
+    $inherit = [Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'
     $onlyUser = [Security.AccessControl.FileSystemAccessRule]::new($sid, 'FullControl', $inherit, 'None', 'Allow')
     $acl.SetAccessRule($onlyUser)
-    Set-Acl -LiteralPath $path -AclObject $acl`;
+    [IO.Directory]::SetAccessControl($path, $acl)`;
   await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], {
-    env: { ...process.env, CF_HUB_ACL_PATH: path, CF_HUB_ACL_DIRECTORY: directory ? '1' : '0' },
+    env: { ...process.env, CF_HUB_ACL_PATH: path },
     windowsHide: true,
   });
 }
@@ -84,11 +83,12 @@ export function createAccountStore(path = accountsPath) {
       const temp = join(dir, `.accounts-${randomUUID()}.tmp`);
       try {
         await mkdir(dir, { recursive: true, mode: 0o700 });
-        await protect(dir, true);
+        if (!(await lstat(dir)).isDirectory()) throw new Error('账号目录必须是普通目录。');
+        await protectDirectory(dir);
         await writeFile(temp, `${JSON.stringify(next, null, 2)}\n`, { flag: 'wx', mode: 0o600, flush: true });
         await rename(temp, path);
-      } catch {
-        throw new Error(`无法保存账号配置 ${path}，请检查目录权限。`);
+      } catch (error) {
+        throw new Error(`无法保存账号配置 ${path}，请检查目录权限。`, { cause: error });
       } finally {
         await rm(temp, { force: true }).catch(() => {});
       }

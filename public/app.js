@@ -9,6 +9,7 @@ const fields = form.elements;
 let session;
 let editing;
 let currentReport;
+let refreshSequence = 0;
 
 function element(tag, text, className) {
   const node = document.createElement(tag);
@@ -100,10 +101,16 @@ function card(account) {
   track.setAttribute('aria-label', requests === null ? '用量未知' : `免费额度基准 ${format(percent)}%`);
   const detail = requests === null ? errors.workersUsage || '暂无用量数据' : `${format(percent)}% · ${scope === 'demo' ? '演示用量' : '估算 · Pages Functions 覆盖未确认'}`;
   usage.append(usageTop, track, element('p', detail, 'hint'));
-  if (account.usage.d1RowsRead != null || account.usage.kvReads != null) {
+  if (scope !== 'demo') {
     const d1 = account.usage.d1RowsRead == null ? '未知' : format(account.usage.d1RowsRead);
     const kv = account.usage.kvReads == null ? '未知' : format(account.usage.kvReads);
-    usage.append(element('p', `D1 读取 ${d1} 行 · KV 读取 ${kv} 次`, 'hint'));
+    const extra = element('p', undefined, 'hint');
+    const d1Label = element('span', `D1 读取 ${d1}${d1 === '未知' ? '' : ' 行'}`);
+    const kvLabel = element('span', `KV 读取 ${kv}${kv === '未知' ? '' : ' 次'}`);
+    if (errors.d1RowsRead) d1Label.title = errors.d1RowsRead;
+    if (errors.kvReads) kvLabel.title = errors.kvReads;
+    extra.append(d1Label, ' · ', kvLabel);
+    usage.append(extra);
   }
 
   const projects = element('div', undefined, 'projects');
@@ -135,15 +142,19 @@ function render(report) {
 }
 
 async function load() {
+  const sequence = ++refreshSequence;
   refresh.disabled = true;
   message(feedback, '正在查询账号…');
   try {
-    render(await api('/api/status'));
+    const report = await api('/api/status');
+    if (sequence === refreshSequence) render(report);
   } catch (error) {
-    message(feedback, error.message, true);
-    if (!currentReport) grid.replaceChildren();
+    if (sequence === refreshSequence) {
+      message(feedback, error.message, true);
+      if (!currentReport) grid.replaceChildren();
+    }
   } finally {
-    refresh.disabled = false;
+    if (sequence === refreshSequence) refresh.disabled = false;
   }
 }
 
