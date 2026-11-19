@@ -104,16 +104,18 @@ export async function createCloudflare({ transport } = {}) {
 
   async function list(account, path, paginated = false) {
     const output = [];
+    // The Pages list endpoint rejects page sizes greater than 10 for some accounts.
+    let pageSize = paginated ? 10 : undefined;
     let page = 1;
     let lastPage = 1;
     do {
       const url = accountPath(account, path);
-      const { result, result_info: info } = await send(paginated ? `${url}?per_page=20&page=${page}` : url, account);
+      const { result, result_info: info } = await send(pageSize ? `${url}?per_page=${pageSize}&page=${page}` : url, account);
       if (!Array.isArray(result)) throw new ApiError(502, 'Cloudflare 返回的项目列表无效。');
       output.push(...result);
       const count = info?.total_pages ?? (info?.per_page > 0 ? Math.ceil(info.total_count / info.per_page) : undefined);
       if (Number.isSafeInteger(count) && count >= page) lastPage = count;
-      if (!paginated && lastPage > page) paginated = true;
+      if (!pageSize && lastPage > page) pageSize = info?.per_page ?? 10;
       page += 1;
     } while (page <= lastPage);
     return output;
@@ -207,7 +209,7 @@ export async function createCloudflare({ transport } = {}) {
     return {
       ...publicAccount(account), workers: workersList, pages: pagesList,
       usage: {
-        workers: { requests, freeLimit, percent: requests === null ? null : requests / freeLimit * 100, scope: 'workers-invocations; pages-functions-unverified' },
+        workers: { requests, freeLimit, percent: requests === null ? null : requests / (freeLimit / 100), scope: 'workers-invocations; pages-functions-unverified' },
         d1RowsRead, kvReads,
       },
       errors,

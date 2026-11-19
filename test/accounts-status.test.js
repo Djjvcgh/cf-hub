@@ -43,10 +43,13 @@ test('status returns zero, pagination and confirmed links independently of faile
     assert.equal(account.apiToken, first.apiToken);
     if (path === '/graphql') {
       assert.equal(body.variables.accountTag, first.accountId);
-      const dataset = /\b(\w+AdaptiveGroups)\(limit/.exec(body.query)[1];
-      if (dataset === 'workersInvocationsAdaptiveGroups') assert.equal(body.variables.start, '2026-11-19T00:00:00Z');
+      const dataset = /\b(\w+Adaptive(?:Groups)?)\(limit/.exec(body.query)[1];
+      if (dataset === 'workersInvocationsAdaptiveGroups') {
+        assert.equal(body.variables.start, '2026-11-19T00:00:00Z');
+        return { errors: [{ message: 'unknown field "workersInvocationsAdaptiveGroups"' }] };
+      }
       const groups = {
-        workersInvocationsAdaptiveGroups: [],
+        workersInvocationsAdaptive: [],
         d1AnalyticsAdaptiveGroups: [{ sum: { rowsRead: 12 } }],
         kvOperationsAdaptiveGroups: [{ sum: { requests: 7 } }],
       };
@@ -58,8 +61,10 @@ test('status returns zero, pagination and confirmed links independently of faile
     if (path.endsWith('/workers/domains')) return { result: [{ service: 'edge', hostname: 'edge.example.com' }] };
     if (path.endsWith('/workers/scripts/edge/subdomain')) return { result: { enabled: true } };
     if (path.endsWith('/workers/scripts/closed/subdomain')) return { result: { enabled: false } };
-    const page = new URL(path, 'https://example.com').searchParams.get('page');
     assert.ok(path.includes('/pages/projects?'));
+    const params = new URL(path, 'https://example.com').searchParams;
+    assert.equal(params.get('per_page'), '10');
+    const page = params.get('page');
     return { result: [{ name: `page-${page}`, subdomain: `page-${page}.pages.dev`, canonical_deployment: {} }], result_info: { total_pages: 2 } };
   } });
   const report = await client.status({ read: async () => [first, second] }, new Date('2026-11-19T05:17:42Z'));
