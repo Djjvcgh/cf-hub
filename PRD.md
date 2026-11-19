@@ -29,8 +29,8 @@
 
 ### CF-01 账号配置与清单
 
-- 账号统一存放在用户主目录的 `~/.cf-hub/accounts.json`。每条记录包含 `alias`、`remark`、`accountId` 和 `apiToken`。别名必填且唯一，备注可留空。
-- 用户在任意目录执行 `cf-hub list`，能看到别名、备注和 Account ID。Token 不进入清单、状态输出或日志。账号凭据以用户主目录的配置为准，业务项目目录和全局 Cloudflare 环境变量均无需配置。
+- 账号统一存放在用户主目录的 `~/.cf-hub/accounts.json`。每条记录包含 `name`、`accountId` 和 `apiToken`。账号名称必填且唯一，支持中文和空格。旧配置读入时从备注或别名取得名称，旧别名继续可用于原命令。
+- 用户在任意目录执行 `cf-hub list`，能看到账号名称和 Account ID。Token 不进入清单、状态输出或日志。账号凭据以用户主目录的配置为准，业务项目目录和全局 Cloudflare 环境变量均无需配置。
 - Cloudflare 侧每个 Token 只授权对应账号，并按需要开启查询或部署权限。配置文件的访问权限限制在当前用户。
 
 ### CF-02 账号状态与用量排名
@@ -43,21 +43,21 @@
 
 ### CF-03 指定账号运行 Wrangler
 
-- 用户执行 `cf-hub run <alias> -- <Wrangler 参数>` 时，工具查找该别名，仅向本次运行 Wrangler 的子进程注入该账号的 `CLOUDFLARE_API_TOKEN` 和 `CLOUDFLARE_ACCOUNT_ID`，再通过 `npx wrangler` 转交参数。原终端和其他账号的运行各自独立。终端可看到 Wrangler 的输出和退出结果。
-- 执行前检查 Wrangler 实际会使用的配置。覆盖 `wrangler.toml`、`wrangler.jsonc`、`wrangler.json`，并考虑显式指定的目录、配置文件、命名环境及框架生成的配置。别名不存在、有效配置中的 `account_id` 冲突或无法确认目标账号时，立即中止，提示所选别名和具体原因。仅在能确认目标账号的情况下透传命令。[Wrangler 配置与生成文件](https://developers.cloudflare.com/workers/wrangler/configuration/#generated-wrangler-configuration) · [Wrangler 命令参数](https://developers.cloudflare.com/workers/wrangler/commands/general/)
-- 示例包括 `cf-hub run cf-2 -- deploy` 和 `cf-hub run cf-1 -- pages deploy ./dist`。
+- 用户执行 `cf-hub run <账号名称> -- <Wrangler 参数>` 时，工具查找该账号，仅向本次运行 Wrangler 的子进程注入该账号的 `CLOUDFLARE_API_TOKEN` 和 `CLOUDFLARE_ACCOUNT_ID`，再通过 `npx wrangler` 转交参数。原终端和其他账号的运行各自独立。终端可看到 Wrangler 的输出和退出结果。
+- 执行前检查 Wrangler 实际会使用的配置。覆盖 `wrangler.toml`、`wrangler.jsonc`、`wrangler.json`，并考虑显式指定的目录、配置文件、命名环境及框架生成的配置。账号不存在、有效配置中的 `account_id` 冲突或无法确认目标账号时，立即中止，提示所选账号及具体原因。仅在能确认目标账号的情况下透传命令。[Wrangler 配置与生成文件](https://developers.cloudflare.com/workers/wrangler/configuration/#generated-wrangler-configuration) · [Wrangler 命令参数](https://developers.cloudflare.com/workers/wrangler/commands/general/)
+- 示例包括 `cf-hub run '我的账号' -- deploy` 和 `cf-hub run '我的账号' -- pages deploy ./dist`。
 - 用户可以自行执行命令。Agent 代跑前须展示本次项目、目标账号和完整命令，等用户明确同意本次部署后才执行。人工确认发生在用户与 Agent 的对话里，`run` 保持可由终端直接调用。
 
 ### CF-04 按需看板与项目入口
 
 - 用户执行 `cf-hub ui` 后，工具启动本地 HTTP 服务，仅监听 `127.0.0.1`，默认使用 `3456` 端口，并自动打开浏览器。结束命令或关闭终端后，看板退出，终端仍可独立使用 `list`、`status` 和 `run`。
-- 看板每个账号显示一张卡片，包含别名、备注、今日请求数、免费额度进度条和 Workers、Pages 项目列表。进度条按占用率变色，用量未知时显示文字原因，避免与零消耗混淆。
+- 看板每个账号显示一张卡片，以账号名称为标题，显示今日请求数、免费额度进度条和 Workers、Pages 项目列表。进度条按占用率变色，用量未知时显示文字原因，避免与零消耗混淆。页面可见时每分钟查询，也可手动刷新。
 - 项目列表展示项目名称和可从 Cloudflare 确认的访问链接。Worker 的 `workers.dev` 地址关闭、项目无公开地址或权限不足时，显示对应提示。[Worker 公开地址说明](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/#manage-access-to-workersdev)
-- 用户点击账号卡片上的「复制部署命令」后，可直接粘贴 `cf-hub run cf-2 -- deploy` 这类命令。点击仅复制，并给出结果反馈。
+- 用户点击账号卡片上的「复制部署命令」后，可直接粘贴 `cf-hub run '我的账号' -- deploy` 这类命令。点击仅复制，并给出结果反馈。
 
 ### CF-05 在看板管理账号
 
-- 用户点击添加，填写别名、Account ID、API Token 和可选备注。保存时访问 Cloudflare 校验 Token 是否能访问所填账号。验证成功后写入 `accounts.json`。验证失败则保留表单，并提示是账号、权限还是连通性问题。
+- 用户点击添加，填写账号名称、Account ID 和 API Token。保存时访问 Cloudflare 校验 Token 是否能访问所填账号。验证成功后写入 `accounts.json`。验证失败则保留表单，并提示是账号、权限还是连通性问题。
 - 用户编辑账号时，只能看到 Token 已设置的掩码或提示，页面和本地接口均不会返回原值。Token 输入留空时保留原值。变更 Account ID 或 Token 时，重新验证后保存。
 - 用户确认删除后，只移除本地账号记录。刷新看板或下一次执行终端命令时，即可看到变更。
 - 账号配置修改只接受由本地看板发出的请求，外部网页不能借访问本机地址修改用户账号。
@@ -72,7 +72,7 @@
 
 | 验收项 | 关联需求 | 操作与预期结果 |
 | --- | --- | --- |
-| 全局命令与本地配置 | CF-01、CF-06 | 安装并链接后，切换到两个不同业务目录执行 `cf-hub list`。两次都列出同样的账号和备注，且没有 Token。 |
+| 全局命令与本地配置 | CF-01、CF-06 | 安装并链接后，切换到两个不同业务目录执行 `cf-hub list`。两次都列出相同的账号名称和 Account ID，且没有 Token。 |
 | 实时状态与排名 | CF-02 | 配置两个可查询的账号后运行 `status` 和 `status --json`。项目列表完整，统计窗口从当日 UTC 00:00 开始，百分比以 100,000 次为基准且标明统计口径，排名与输出的请求数一致，JSON 可直接解析。 |
 | D1 与 KV 用量 | CF-02 | 对有对应查询权限的账号，检查 D1 读取行数和 KV 读取次数。权限不足时，仅受影响的用量显示「未知」。 |
 | 局部故障 | CF-02 | 使用权限不足的 Token 查询，或让一个账号的请求超时。对应项目或数值标为未知并说明原因，其他成功结果照常显示，未知用量不进入排名。 |

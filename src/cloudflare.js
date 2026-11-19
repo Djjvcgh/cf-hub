@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { Agent, request } from 'node:https';
 import { promisify } from 'node:util';
 import { publicAccount } from './accounts.js';
@@ -60,9 +61,11 @@ function httpError(status, errors) {
 export async function createCloudflare({ transport } = {}) {
   let agent;
   let proxyError;
+  const workerLinks = new Map();
+  const workersFallback = new Set();
   if (!transport) {
     try {
-      agent = new Agent({ proxyEnv: await proxyEnvironment(), maxSockets: 12 });
+      agent = new Agent({ proxyEnv: await proxyEnvironment(), keepAlive: true, maxSockets: 12 });
     } catch {
       proxyError = new ApiError(502, '代理地址无效，请检查 HTTP_PROXY 和 HTTPS_PROXY。');
     }
@@ -125,27 +128,38 @@ export async function createCloudflare({ transport } = {}) {
 
   async function workers(account) {
     const scripts = await list(account, '/workers/scripts');
-    if (scripts.length === 0) return [];
-    const [subdomain, domains] = await Promise.all([
-      send(accountPath(account, '/workers/subdomain'), account).then(data => data.result?.subdomain).catch(() => null),
-      list(account, '/workers/domains').catch(() => []),
+    const names = scripts.flatMap(script => typeof script.id === 'string' ? [script.id] : []);
+    if (!names.length) {
+      workerLinks.delete(account.accountId);
+      return [];
+    }
+    const namesKey = JSON.stringify(names);
+    const tokenKey = createHash('sha256').update(account.apiToken).digest('base64url');
+    const cached = workerLinks.get(account.accountId);
+    if (cached?.tokenKey === tokenKey && cached.namesKey === namesKey && cached.expires > Date.now()) return cached.projects;
+
+    let cacheable = true;
+    function readLinkData(promise) {
+      return promise.catch(error => {
+        if (error.status !== 403 && error.status !== 404) cacheable = false;
+        return null;
+      });
+    }
+    const [subdomain, domains, flags] = await Promise.all([
+      readLinkData(send(accountPath(account, '/workers/subdomain'), account)).then(data => data?.result?.subdomain),
+      readLinkData(list(account, '/workers/domains')),
+      Promise.all(names.map(name => readLinkData(send(accountPath(account, `/workers/scripts/${encodeURIComponent(name)}/subdomain`), account)))),
     ]);
-    return Promise.all(scripts.filter(script => typeof script.id === 'string').map(async ({ id: name }) => {
-      const custom = domains.filter(domain => domain.service === name && domain.enabled !== false).map(domain => domain.hostname);
-      let standard;
-      let linkNote;
-      if (subdomain) {
-        try {
-          const { result } = await send(accountPath(account, `/workers/scripts/${encodeURIComponent(name)}/subdomain`), account);
-          if (result?.enabled === true) standard = `${name}.${subdomain}.workers.dev`;
-          else if (result?.enabled === false) linkNote = 'workers.dev 已关闭';
-        } catch {
-          linkNote = '无法确认 Workers 访问地址';
-        }
-      }
+    const projects = names.map((name, index) => {
+      const custom = (domains ?? []).filter(domain => domain.service === name && domain.enabled !== false).map(domain => domain.hostname);
+      const enabled = flags[index]?.result?.enabled;
+      const standard = subdomain && enabled === true ? `${name}.${subdomain}.workers.dev` : undefined;
       const urls = webUrls([...custom, standard]);
+      const linkNote = enabled === false ? 'workers.dev 已关闭' : '无法确认 Workers 访问地址';
       return { name, urls, ...(!urls.length && linkNote && { linkNote }) };
-    }));
+    });
+    if (cacheable) workerLinks.set(account.accountId, { tokenKey, namesKey, projects, expires: Date.now() + 120_000 });
+    return projects;
   }
 
   async function pages(account) {
@@ -187,14 +201,17 @@ export async function createCloudflare({ transport } = {}) {
   }
 
   async function workerUsage(account, window) {
-    try {
-      const requests = await metric(account, window, 'workersInvocationsAdaptiveGroups', 'requests');
-      return { requests, scope: unverifiedScope };
-    } catch (error) {
-      if (error.status !== 501) throw error;
-      const requests = await metric(account, window, 'workersInvocationsAdaptive', 'requests');
-      return { requests, scope: workersOnlyScope };
+    if (!workersFallback.has(account.accountId)) {
+      try {
+        const requests = await metric(account, window, 'workersInvocationsAdaptiveGroups', 'requests');
+        return { requests, scope: unverifiedScope };
+      } catch (error) {
+        if (error.status !== 501) throw error;
+        workersFallback.add(account.accountId);
+      }
     }
+    const requests = await metric(account, window, 'workersInvocationsAdaptive', 'requests');
+    return { requests, scope: workersOnlyScope };
   }
 
   async function accountReport(account, window) {
@@ -235,8 +252,8 @@ export async function createCloudflare({ transport } = {}) {
       const known = accounts.filter(account => account.usage.workers.requests !== null);
       const rankingScope = known.some(account => account.usage.workers.scope === workersOnlyScope) ? workersOnlyScope : unverifiedScope;
       const ranking = known.filter(account => account.usage.workers.scope === rankingScope)
-        .map(({ alias, usage }) => ({ alias, requests: usage.workers.requests }))
-        .sort((a, b) => a.requests - b.requests || a.alias.localeCompare(b.alias));
+        .map(({ alias, name, usage }) => ({ alias, name, requests: usage.workers.requests }))
+        .sort((a, b) => a.requests - b.requests || a.name.localeCompare(b.name));
       return { window, accounts, ranking, error: null };
     },
     async validate(account) {
@@ -278,12 +295,12 @@ export function printStatus(report) {
   for (const account of report.accounts) {
     const { requests, percent, scope } = account.usage.workers;
     const coverage = scope === workersOnlyScope ? '仅 Workers，Pages Functions 用量另计' : 'Pages Functions 覆盖未确认';
-    console.log(`\n${account.alias}${account.remark ? ` · ${account.remark}` : ''}`);
+    console.log(`\n${account.name}`);
     console.log(`  Workers 请求 ${requests === null ? '未知' : `${requests.toLocaleString('zh-CN')} / 100,000（${percent.toFixed(2)}%，估算，${coverage}）`}`);
     console.log(`  Workers ${account.workers?.map(project => project.name).join('、') || (account.workers === null ? '未知' : '空')}`);
     console.log(`  Pages   ${account.pages?.map(project => project.name).join('、') || (account.pages === null ? '未知' : '空')}`);
     console.log(`  D1 读取 ${account.usage.d1RowsRead ?? '未知'} 行 · KV 读取 ${account.usage.kvReads ?? '未知'} 次`);
     for (const { section, message } of account.errors) console.log(`  ${section}：${message}`);
   }
-  if (report.ranking.length) console.log(`\n今日用量排名：${report.ranking.map(entry => `${entry.alias} (${entry.requests})`).join(' → ')}`);
+  if (report.ranking.length) console.log(`\n今日用量排名：${report.ranking.map(entry => `${entry.name} (${entry.requests})`).join(' → ')}`);
 }

@@ -1,13 +1,13 @@
 #!/usr/bin/env node
-import { createAccountStore, publicAccount } from '../src/accounts.js';
+import { createAccountStore, findAccount } from '../src/accounts.js';
 
 const [command, ...args] = process.argv.slice(2);
 const store = createAccountStore();
-const usage = '用法：cf-hub list | status [--json] | run <alias> -- <Wrangler 参数> | ui [--demo]';
+const usage = '用法：cf-hub list | status [--json] | run <账号名称> -- <Wrangler 参数> | ui [--demo]';
 
 try {
   if (command === 'list' && args.length === 0) {
-    const accounts = (await store.read()).map(publicAccount);
+    const accounts = (await store.read()).map(({ name, accountId }) => ({ '账号名称': name, 'Account ID': accountId }));
     if (accounts.length === 0) console.log('还没有配置账号。');
     else console.table(accounts);
   } else if (command === 'status' && (args.length === 0 || (args.length === 1 && args[0] === '--json'))) {
@@ -22,8 +22,8 @@ try {
       cloudflare.close();
     }
   } else if (command === 'run' && args.length >= 3 && args[1] === '--') {
-    const account = (await store.read()).find(entry => entry.alias === args[0]);
-    if (!account) throw new Error(`找不到账号 ${args[0]}，请先用 cf-hub list 查看别名。`);
+    const account = findAccount(await store.read(), args[0]);
+    if (!account) throw new Error(`找不到账号 ${args[0]}，请先用 cf-hub list 查看账号名称。`);
     const { runWrangler } = await import('../src/wrangler.js');
     process.exitCode = await runWrangler(account, args.slice(2));
   } else if (command === 'ui' && (args.length === 0 || (args.length === 1 && args[0] === '--demo'))) {

@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
-import { accountRecord, aliasPattern, InputError, publicAccount } from './accounts.js';
+import { accountRecord, findAccount, InputError, normalizeAccountName, publicAccount } from './accounts.js';
 
 const assets = {
   '/': ['index.html', 'text/html'],
@@ -53,9 +53,9 @@ function openBrowser(url) {
 
 export function demoDashboard() {
   let accounts = [
-    { alias: 'cf-1', remark: '个人站点与轻量服务', accountId: '1'.repeat(32), apiToken: 'demo' },
-    { alias: 'cf-2', remark: '实验项目与预览环境', accountId: '2'.repeat(32), apiToken: 'demo' },
-    { alias: 'cf-lab', remark: '独立测试账号', accountId: '3'.repeat(32), apiToken: 'demo' },
+    { name: '个人站点与轻量服务', accountId: '1'.repeat(32), apiToken: 'demo' },
+    { name: '实验项目与预览环境', accountId: '2'.repeat(32), apiToken: 'demo' },
+    { name: '独立测试账号', accountId: '3'.repeat(32), apiToken: 'demo' },
   ];
   const counts = [24680, 78640, null];
   const examples = [
@@ -106,22 +106,27 @@ export async function startDashboard({ store, status, validate, port = 3456, ope
       }
       if (req.method === 'GET' && path === '/api/status') return send(res, 200, await status());
 
-      const alias = path?.startsWith('/api/accounts/') ? path.slice('/api/accounts/'.length) : '';
+      const selector = path?.startsWith('/api/accounts/') ? path.slice('/api/accounts/'.length) : '';
       const add = path === '/api/accounts' && req.method === 'POST';
-      const edit = aliasPattern.test(alias) && req.method === 'PATCH';
-      const remove = aliasPattern.test(alias) && req.method === 'DELETE';
+      const edit = selector && req.method === 'PATCH';
+      const remove = selector && req.method === 'DELETE';
       if (!add && !edit && !remove) return send(res, 404, { error: '找不到此地址。' });
       if (req.headers.origin !== `http://${host}` || req.headers['x-cf-hub-session'] !== session) {
         return send(res, 403, { error: '请从本地看板操作。' });
       }
+      let name;
+      if (!add) {
+        try { name = normalizeAccountName(decodeURIComponent(selector)); } catch {}
+        if (!name) throw new HttpError(400, '账号名称无效。');
+      }
       const body = remove ? null : await jsonBody(req);
       await store.update(async accounts => {
-        const previous = accounts.find(account => account.alias === alias);
+        const previous = findAccount(accounts, name);
         if (!add && !previous) throw new HttpError(404, '账号不存在，请刷新列表。');
         if (remove) return accounts.filter(account => account !== previous);
         const next = accountRecord(body, previous);
-        if (accounts.some(account => account !== previous && account.alias === next.alias)) {
-          throw new HttpError(409, '这个别名已被使用。');
+        if (findAccount(accounts.filter(account => account !== previous), next.name)) {
+          throw new HttpError(409, '这个账号名称已被使用。');
         }
         if (!previous || next.accountId !== previous.accountId || next.apiToken !== previous.apiToken) await validate(next);
         return add ? [...accounts, next] : accounts.map(account => account === previous ? next : account);

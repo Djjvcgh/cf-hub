@@ -16,3 +16,4 @@
 - **任务 02、06** 2026-11-19 对照 Cloudflare 统计数据集。测试 Worker 的入口访问出现在 Workers 统计中，Pages Functions 的 `/health` 访问出现在独立的 Pages 统计中。用 Pages 的生产脚本名查 Workers 数据集，结果为 0。看板按这个口径标注比例。
 - **任务 06** Worker 首次上传成功后，Cloudflare 回读元数据暂时返回 `10007`。只读核对 Worker 已存在后重试原命令，启用 `workers.dev` 并验证通过。
 - **任务 02** Windows 手动代理已通过联机验收。清除测试进程的代理变量后，通过系统手动代理收到 Cloudflare HTTPS 响应。临时设置 `NO_PROXY=api.cloudflare.com` 后改为直连，同样收到 Cloudflare 响应。实际错误 `9106` 已校验会提示 Token 无效。
+- **任务 02、05** 2026-11-19 验证完整账号名称、中文及空格的增删改和复制部署命令。真实账号连续只读查询三次，Workers 请求数分别保持一致。优化前每次约 3.2–3.8 秒，优化后首次 2.2 秒、重复两次约 0.3–1.3 秒。Edge 验证看板每分钟自动查询。

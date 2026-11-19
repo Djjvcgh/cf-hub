@@ -7,16 +7,23 @@ import { promisify } from 'node:util';
 
 const exec = promisify(execFile);
 export const accountsPath = join(homedir(), '.cf-hub', 'accounts.json');
-export const aliasPattern = /^[a-z0-9][a-z0-9-]{0,62}$/;
-
 export class InputError extends Error {}
 
+export function normalizeAccountName(value) {
+  if (typeof value !== 'string' || !value.isWellFormed() || /["\x00-\x1f\x7f\u0085\u2028\u2029]/.test(value)) return null;
+  const name = value.trim().normalize('NFC');
+  return name && name !== '.' && name !== '..' && name.length <= 120 ? name : null;
+}
+
+export function findAccount(accounts, selector) {
+  const name = normalizeAccountName(selector);
+  return name ? accounts.find(account => account.name === name || account.alias === name) : undefined;
+}
+
 export function accountRecord(input, previous) {
-  const { alias, remark = '', accountId, apiToken = '' } = input ?? {};
-  if (typeof alias !== 'string' || !aliasPattern.test(alias)) {
-    throw new InputError('别名须以小写字母或数字开头，且仅包含小写字母、数字和连字符。');
-  }
-  if (typeof remark !== 'string' || remark.length > 500) throw new InputError('备注须为 500 字以内的文字。');
+  const { accountId, apiToken = '' } = input ?? {};
+  const name = normalizeAccountName(input?.name);
+  if (!name) throw new InputError('请输入 1 至 120 字的账号名称。名称可以有空格，请去掉英文双引号和换行。');
   if (typeof accountId !== 'string' || !/^[a-f0-9]{32}$/i.test(accountId)) {
     throw new InputError('Account ID 须为 32 位十六进制字符。');
   }
@@ -24,11 +31,33 @@ export function accountRecord(input, previous) {
   if (typeof token !== 'string' || !/^[A-Za-z0-9_.-]{1,512}$/.test(token)) {
     throw new InputError('请输入有效格式的 API Token。');
   }
-  return { alias, remark, accountId: accountId.toLowerCase(), apiToken: token };
+  return {
+    name, accountId: accountId.toLowerCase(), apiToken: token,
+    ...(previous?.alias && { alias: previous.alias }),
+    ...(previous?.remark && { remark: previous.remark }),
+  };
 }
 
-export function publicAccount({ alias, remark, accountId }) {
-  return { alias, remark, accountId };
+export function publicAccount({ alias, name = alias, remark = '', accountId }) {
+  return { name, alias: alias ?? name, remark, accountId };
+}
+
+function readRecords(records) {
+  if (!Array.isArray(records)) throw new InputError('应为 JSON 格式的账号数组。');
+  const reserved = new Set(records.flatMap(record => [normalizeAccountName(record?.name), normalizeAccountName(record?.alias)]));
+  const used = new Set();
+  return records.map(record => {
+    const alias = normalizeAccountName(record?.alias);
+    const remark = typeof record?.remark === 'string' ? record.remark : '';
+    const candidate = normalizeAccountName(remark);
+    const name = record?.name ?? (candidate && !reserved.has(candidate) && !used.has(candidate) ? candidate : alias);
+    const account = accountRecord({ ...record, name }, { alias, remark });
+    for (const selector of new Set([account.name, account.alias].filter(Boolean))) {
+      if (used.has(selector)) throw new InputError('存在重复的账号名称。');
+      used.add(selector);
+    }
+    return account;
+  });
 }
 
 async function protectDirectory(path) {
@@ -67,9 +96,7 @@ export function createAccountStore(path = accountsPath) {
       throw new Error(`无法读取账号配置 ${path}（${error.code ?? '读取失败'}）。`);
     }
     try {
-      const records = JSON.parse(contents.replace(/^\uFEFF/, '')).map(record => accountRecord(record));
-      if (new Set(records.map(record => record.alias)).size !== records.length) throw new InputError('存在重复别名。');
-      return records;
+      return readRecords(JSON.parse(contents.replace(/^\uFEFF/, '')));
     } catch (error) {
       const reason = error instanceof InputError ? error.message : '应为 JSON 格式的账号数组。';
       throw new Error(`账号配置 ${path} 有问题。${reason}`);
@@ -78,7 +105,7 @@ export function createAccountStore(path = accountsPath) {
 
   function update(change) {
     const write = pending.then(async () => {
-      const next = await change(await read());
+      const next = readRecords(await change(await read()));
       const dir = dirname(path);
       const temp = join(dir, `.accounts-${randomUUID()}.tmp`);
       try {

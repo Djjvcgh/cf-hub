@@ -10,6 +10,7 @@ let session;
 let editing;
 let currentReport;
 let refreshSequence = 0;
+const refreshEvery = 60_000;
 
 function element(tag, text, className) {
   const node = document.createElement(tag);
@@ -31,12 +32,20 @@ async function api(path, options) {
   return body;
 }
 
-async function mutate(method, alias, body) {
+async function mutate(method, name, body) {
   if (!session) ({ session } = await api('/api/accounts'));
-  return api(`/api/accounts${alias ? `/${alias}` : ''}`, {
+  return api(`/api/accounts${name ? `/${encodeURIComponent(name)}` : ''}`, {
     method, headers: { 'Content-Type': 'application/json', 'X-CF-Hub-Session': session },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
+}
+
+function deployCommand(name) {
+  if (/^[a-zA-Z0-9][a-zA-Z0-9_.@+-]*$/.test(name)) return `cf-hub run ${name} -- deploy`;
+  const quoted = navigator.platform.startsWith('Win')
+    ? name.replace(/['‘’]/g, character => character.repeat(2))
+    : name.replaceAll("'", "'\\''");
+  return `cf-hub run '${quoted}' -- deploy`;
 }
 
 function projectList(title, projects, error) {
@@ -65,11 +74,10 @@ function projectList(title, projects, error) {
 }
 
 function openEditor(account) {
-  editing = account?.alias;
+  editing = account?.name;
   form.reset();
-  select('#editor-title').textContent = account ? `编辑 ${account.alias}` : '添加账号';
-  fields.alias.value = account?.alias ?? '';
-  fields.remark.value = account?.remark ?? '';
+  select('#editor-title').textContent = account ? `编辑 ${account.name}` : '添加账号';
+  fields.name.value = account?.name ?? '';
   fields.accountId.value = account?.accountId ?? '';
   fields.apiToken.required = !account;
   fields.apiToken.placeholder = account ? '已设置，留空保留' : '输入用于此账号的 Token';
@@ -82,10 +90,9 @@ function card(account) {
   const wrapper = element('article', undefined, 'card');
   const heading = element('div', undefined, 'card-top');
   const names = element('div');
-  names.append(element('h2', account.alias));
-  if (account.remark) names.append(element('p', account.remark, 'muted'));
+  names.append(element('h2', account.name));
   const edit = element('button', '编辑');
-  edit.setAttribute('aria-label', `编辑 ${account.alias}`);
+  edit.setAttribute('aria-label', `编辑 ${account.name}`);
   edit.addEventListener('click', () => openEditor(account));
   heading.append(names, edit);
 
@@ -119,13 +126,14 @@ function card(account) {
   const projects = element('div', undefined, 'projects');
   projects.append(projectList('Workers', account.workers, errors.workers), projectList('Pages', account.pages, errors.pages));
   const copy = element('button', '复制部署命令', 'copy');
+  const command = deployCommand(account.name);
   copy.addEventListener('click', async () => {
     try {
-      await navigator.clipboard.writeText(`cf-hub run ${account.alias} -- deploy`);
+      await navigator.clipboard.writeText(command);
       copy.textContent = '已复制';
       setTimeout(() => { copy.textContent = '复制部署命令'; }, 1600);
     } catch {
-      message(feedback, `复制失败，可手动复制：cf-hub run ${account.alias} -- deploy`, true);
+      message(feedback, `复制失败，可手动复制：${command}`, true);
     }
   });
   wrapper.append(heading, usage, projects, copy);
@@ -137,17 +145,17 @@ function render(report) {
   select('#demo').hidden = !report.demo;
   const ranking = new Map((report.ranking ?? []).map((entry, index) => [entry.alias, index]));
   const accounts = [...report.accounts].sort((a, b) => (ranking.get(a.alias) ?? Infinity) - (ranking.get(b.alias) ?? Infinity));
-  select('#summary').textContent = `${accounts.length} 个账号 · UTC 统计`;
+  select('#summary').textContent = `${accounts.length} 个账号 · UTC 统计${accounts.length && !report.demo ? ' · 每分钟自动查询' : ''}`;
   select('#updated').textContent = report.window?.end ? `查询于 ${new Date(report.window.end).toLocaleTimeString('zh-CN', { hour12: false })}` : '';
   grid.replaceChildren(...accounts.map(card));
   if (accounts.length === 0 && !report.error) grid.append(element('p', '还没有账号，点击「添加账号」开始。', 'card empty'));
   message(feedback, report.error || '', Boolean(report.error));
 }
 
-async function load() {
+async function load({ background = false } = {}) {
   const sequence = ++refreshSequence;
   refresh.disabled = true;
-  message(feedback, '正在查询账号…');
+  if (!background || !currentReport) message(feedback, '正在查询账号…');
   try {
     const report = await api('/api/status');
     if (sequence === refreshSequence) render(report);
@@ -164,7 +172,7 @@ async function load() {
 select('#add').addEventListener('click', () => openEditor());
 select('#close-editor').addEventListener('click', () => editor.close());
 editor.addEventListener('close', () => { fields.apiToken.value = ''; });
-refresh.addEventListener('click', load);
+refresh.addEventListener('click', () => load());
 form.addEventListener('submit', async event => {
   event.preventDefault();
   const submit = form.querySelector('[type=submit]');
@@ -196,3 +204,8 @@ confirmDelete.addEventListener('close', async () => {
   }
 });
 void load();
+setInterval(() => {
+  if (document.visibilityState === 'visible' && !editor.open && !refresh.disabled && !currentReport?.demo) {
+    void load({ background: true });
+  }
+}, refreshEvery);

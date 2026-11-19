@@ -62,7 +62,7 @@ function assertEnvFiles(cwd, env, paths) {
 
 function assertAccount(account, value, path) {
   if (value !== undefined && (typeof value !== 'string' || value.toLowerCase() !== account.accountId)) {
-    throw new Error(`账号冲突：${path} 的 account_id 与 ${account.alias}（${account.accountId}）不一致。`);
+    throw new Error(`账号冲突：${path} 的 account_id 与 ${account.name ?? account.alias}（${account.accountId}）不一致。`);
   }
 }
 
@@ -127,7 +127,7 @@ export function checkWrangler(account, args, cwd = process.cwd()) {
         }
       } catch (error) {
         if (error.message.startsWith('账号冲突')) throw error;
-        throw new Error(`无法确认 ${account.alias} 的 Wrangler 配置，请检查 ${path} 及可能的生成配置。`);
+        throw new Error(`无法确认 ${account.name ?? account.alias} 的 Wrangler 配置，请检查 ${path} 及可能的生成配置。`);
       }
     }
   } finally {
