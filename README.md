@@ -16,7 +16,7 @@
 
 别名是终端命令里的短名，例如 `my-site`。Cloudflare 上的完整账号名称可以填到「账号名称或备注」，保存后会显示在卡片上。
 
-用量按 UTC 每天零点重新统计。Workers 进度条用 100,000 次作为免费版基准，Pages Functions 的覆盖范围目前标为未确认。
+用量按 UTC 每天零点重新统计。进度条用 100,000 次作为免费版基准。`cf-1` 实测中，Pages Functions 请求出现在单独的统计数据集里，当前看板的比例仅按 Workers 请求估算。两种请求共用免费额度。[Cloudflare Pages Functions 额度说明](https://developers.cloudflare.com/pages/functions/pricing/#free-plan)
 
 ## 常见问题
 

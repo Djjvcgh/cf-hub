@@ -70,6 +70,7 @@ test('status returns zero, pagination and confirmed links independently of faile
   const report = await client.status({ read: async () => [first, second] }, new Date('2026-11-19T05:17:42Z'));
   assert.equal(report.window.start, '2026-11-19T00:00:00.000Z');
   assert.deepEqual(report.ranking, [{ alias: first.alias, requests: 0 }]);
+  assert.equal(report.accounts[0].usage.workers.scope, 'workers-invocations; pages-functions-separate');
   assert.deepEqual(report.accounts[0].workers[0].urls, ['https://edge.example.com/', 'https://edge.sample.workers.dev/']);
   assert.deepEqual(report.accounts[0].workers[1].urls, []);
   assert.deepEqual(report.accounts[0].pages.map(project => project.name), ['page-1', 'page-2']);
@@ -80,6 +81,21 @@ test('status returns zero, pagination and confirmed links independently of faile
   assert.ok(!JSON.stringify(report).includes('private-token'));
   assert.equal(failedStatus(report), false);
   assert.equal(failedStatus({ ...report, accounts: [report.accounts[1]] }), true);
+});
+
+test('rankings use the verified Workers-only scope when Cloudflare reports different scopes', async () => {
+  const client = await createCloudflare({ transport: async (path, account, body) => {
+    if (path !== '/graphql') return { result: [] };
+    const dataset = /\b(\w+Adaptive(?:Groups)?)\(limit/.exec(body.query)[1];
+    if (account === first && dataset === 'workersInvocationsAdaptiveGroups') {
+      return { errors: [{ message: 'unknown field "workersInvocationsAdaptiveGroups"' }] };
+    }
+    const groups = dataset.startsWith('workersInvocations') ? [{ sum: { requests: account === first ? 10 : 3 } }] : [];
+    return { data: { viewer: { accounts: [{ [dataset]: groups }] } } };
+  } });
+  const report = await client.status({ read: async () => [first, second] });
+  assert.equal(report.accounts[1].usage.workers.requests, 3);
+  assert.deepEqual(report.ranking, [{ alias: first.alias, requests: 10 }]);
 });
 
 test('dashboard writes require the local session and verified credentials', async t => {

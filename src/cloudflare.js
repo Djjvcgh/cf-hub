@@ -7,6 +7,8 @@ const exec = promisify(execFile);
 const base = 'https://api.cloudflare.com/client/v4';
 const freeLimit = 100_000;
 const proxyKeys = ['http_proxy', 'https_proxy', 'no_proxy'];
+const workersOnlyScope = 'workers-invocations; pages-functions-separate';
+const unverifiedScope = 'workers-invocations; pages-functions-unverified';
 
 export async function proxyEnvironment(env = process.env) {
   const settings = Object.fromEntries(Object.entries(env).filter(([key, value]) => value && proxyKeys.includes(key.toLowerCase())));
@@ -186,10 +188,12 @@ export async function createCloudflare({ transport } = {}) {
 
   async function workerUsage(account, window) {
     try {
-      return await metric(account, window, 'workersInvocationsAdaptiveGroups', 'requests');
+      const requests = await metric(account, window, 'workersInvocationsAdaptiveGroups', 'requests');
+      return { requests, scope: unverifiedScope };
     } catch (error) {
       if (error.status !== 501) throw error;
-      return metric(account, window, 'workersInvocationsAdaptive', 'requests');
+      const requests = await metric(account, window, 'workersInvocationsAdaptive', 'requests');
+      return { requests, scope: workersOnlyScope };
     }
   }
 
@@ -201,15 +205,16 @@ export async function createCloudflare({ transport } = {}) {
       metric(account, window, 'd1AnalyticsAdaptiveGroups', 'rowsRead', { dateOnly: true }),
       metric(account, window, 'kvOperationsAdaptiveGroups', 'requests', { dateOnly: true, extra: 'actionType: "read"' }),
     ]);
-    const [workersList, pagesList, requests, d1RowsRead, kvReads] = results.map((result, index) => {
+    const [workersList, pagesList, workersMetric, d1RowsRead, kvReads] = results.map((result, index) => {
       if (result.status === 'fulfilled') return result.value;
       errors.push({ section: sections[index], message: result.reason.message });
       return null;
     });
+    const { requests, scope } = workersMetric ?? { requests: null, scope: unverifiedScope };
     return {
       ...publicAccount(account), workers: workersList, pages: pagesList,
       usage: {
-        workers: { requests, freeLimit, percent: requests === null ? null : requests / (freeLimit / 100), scope: 'workers-invocations; pages-functions-unverified' },
+        workers: { requests, freeLimit, percent: requests === null ? null : requests / (freeLimit / 100), scope },
         d1RowsRead, kvReads,
       },
       errors,
@@ -227,7 +232,9 @@ export async function createCloudflare({ transport } = {}) {
       } catch (error) {
         return { window, accounts: [], ranking: [], error: error.message };
       }
-      const ranking = accounts.filter(account => account.usage.workers.requests !== null)
+      const known = accounts.filter(account => account.usage.workers.requests !== null);
+      const rankingScope = known.some(account => account.usage.workers.scope === workersOnlyScope) ? workersOnlyScope : unverifiedScope;
+      const ranking = known.filter(account => account.usage.workers.scope === rankingScope)
         .map(({ alias, usage }) => ({ alias, requests: usage.workers.requests }))
         .sort((a, b) => a.requests - b.requests || a.alias.localeCompare(b.alias));
       return { window, accounts, ranking, error: null };
@@ -269,9 +276,10 @@ export function printStatus(report) {
   if (!report.accounts.length) return console.log('还没有配置账号，可用 cf-hub ui 添加。');
   console.log(`今日用量（UTC） ${report.window.start} 至 ${report.window.end}`);
   for (const account of report.accounts) {
-    const { requests, percent } = account.usage.workers;
+    const { requests, percent, scope } = account.usage.workers;
+    const coverage = scope === workersOnlyScope ? '仅 Workers，Pages Functions 用量另计' : 'Pages Functions 覆盖未确认';
     console.log(`\n${account.alias}${account.remark ? ` · ${account.remark}` : ''}`);
-    console.log(`  Workers 请求 ${requests === null ? '未知' : `${requests.toLocaleString('zh-CN')} / 100,000（${percent.toFixed(2)}%，估算，Pages Functions 覆盖未确认）`}`);
+    console.log(`  Workers 请求 ${requests === null ? '未知' : `${requests.toLocaleString('zh-CN')} / 100,000（${percent.toFixed(2)}%，估算，${coverage}）`}`);
     console.log(`  Workers ${account.workers?.map(project => project.name).join('、') || (account.workers === null ? '未知' : '空')}`);
     console.log(`  Pages   ${account.pages?.map(project => project.name).join('、') || (account.pages === null ? '未知' : '空')}`);
     console.log(`  D1 读取 ${account.usage.d1RowsRead ?? '未知'} 行 · KV 读取 ${account.usage.kvReads ?? '未知'} 次`);

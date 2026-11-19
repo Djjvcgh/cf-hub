@@ -99,7 +99,10 @@ function card(account) {
   track.max = 100;
   track.value = Math.max(0, Math.min(100, percent ?? 0));
   track.setAttribute('aria-label', requests === null ? '用量未知' : `免费额度基准 ${format(percent)}%`);
-  const detail = requests === null ? errors.workersUsage || '暂无用量数据' : `${format(percent)}% · ${scope === 'demo' ? '演示用量' : '估算 · Pages Functions 覆盖未确认'}`;
+  const coverage = scope === 'workers-invocations; pages-functions-separate'
+    ? '估算 · 仅 Workers，另有 Pages Functions 用量'
+    : '估算 · Pages Functions 覆盖未确认';
+  const detail = requests === null ? errors.workersUsage || '暂无用量数据' : `${format(percent)}% · ${scope === 'demo' ? '演示用量' : coverage}`;
   usage.append(usageTop, track, element('p', detail, 'hint'));
   if (scope !== 'demo') {
     const d1 = account.usage.d1RowsRead == null ? '未知' : format(account.usage.d1RowsRead);

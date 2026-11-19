@@ -4,7 +4,7 @@
 | --- | --- |
 | 版本 | v1.0 首版需求 |
 | 更新日期 | 2026-11-19 |
-| 状态 | 已实现，待真实账号验收 |
+| 状态 | 已实现，单账号联机验收通过 |
 | 决定与理由 | [项目决策记录](docs/decisions-cf-hub.md) |
 
 ## 1. 背景与目标
@@ -36,7 +36,7 @@
 ### CF-02 账号状态与用量排名
 
 - 用户执行 `cf-hub status` 时，工具并发查询已配置账号，显示各账号的 Workers、Pages 项目和今日用量。Workers 通过 `GET /client/v4/accounts/{id}/workers/scripts` 获取，Pages 通过 `GET /client/v4/accounts/{id}/pages/projects` 获取，结果包括后续分页中的项目。[Workers 列表接口](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/methods/list/) · [Pages 列表接口](https://developers.cloudflare.com/api/resources/pages/subresources/projects/methods/list/)
-- 通过 `POST /client/v4/graphql` 查询 `workersInvocationsAdaptiveGroups`，统计查询当日 UTC 00:00 到查询时点的 Workers 请求量，以 Workers Free 每日 100,000 次为基准计算百分比。Pages Functions 也消耗同一份额度。开发时需核对查询是否覆盖 Pages Functions。如覆盖范围无法确认，界面和 JSON 应标明该比例仅按已统计请求估算，并说明统计范围。[Workers 免费额度](https://developers.cloudflare.com/workers/platform/limits/#daily-requests) · [Pages Functions 计费](https://developers.cloudflare.com/pages/functions/pricing/#free-plan) · [Cloudflare 统计采样](https://developers.cloudflare.com/analytics/graphql-api/sampling/)
+- 通过 `POST /client/v4/graphql` 查询 `workersInvocationsAdaptiveGroups`。Cloudflare 未提供该数据集时，使用官方文档中的 `workersInvocationsAdaptive`。统计当日 UTC 00:00 到查询时点的 Workers 请求量，以 Workers Free 每日 100,000 次为基准估算百分比。Pages Functions 也消耗同一份额度。界面和 JSON 标明当前数据集的统计范围及 Pages Functions 覆盖情况。[Workers 查询接口](https://developers.cloudflare.com/analytics/graphql-api/tutorials/querying-workers-metrics/) · [Workers 免费额度](https://developers.cloudflare.com/workers/platform/limits/#daily-requests) · [Pages Functions 计费](https://developers.cloudflare.com/pages/functions/pricing/#free-plan)
 - 权限及数据源支持时，同期显示 D1 读取行数和 KV 读取次数。缺权限或查询失败时，对应项显示「未知」及原因。一个账号或一个数据项出错时，仍显示查到的其他结果。成功查到零请求的账号应显示 `0`。[D1 指标](https://developers.cloudflare.com/d1/observability/metrics-analytics/) · [KV 指标](https://developers.cloudflare.com/kv/observability/metrics-analytics/)
 - 排名按口径一致的今日请求数从少到多排列，用量未知的账号不参加排名。D1 和 KV 数据供参考。
 - Agent 执行 `cf-hub status --json` 时，标准输出只包含一个有效的 JSON 文档，提供统计窗口、账号和项目、用量及其口径、排名和缺失原因。未知数值用 `null` 表示，便于与零区分。
