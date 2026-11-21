@@ -2,11 +2,43 @@
 
 一个轻量的本地 Cloudflare 多账号工具。你可以在终端查看各账号的项目和今日用量，选定账号后运行 Wrangler，也可以临时打开网页管理账号。
 
-## 安装
+## 部署与安装指南
 
-准备 [Node.js 24 LTS](https://nodejs.org/en/about/previous-releases)，在 cf-hub 项目目录执行 `npm install && npm link`。如果 PowerShell 不支持 `&&`，分两行执行，等 `npm install` 成功后再执行 `npm link`。
+`cf-hub` 是纯本机运行的本地工具，不需要也不建议部署到公网服务器。你在自己电脑上装好之后即可在任意业务目录使用；线上自动部署（如 GitHub Actions）继续使用平台自身的 Secrets 即可。
 
-**Windows 快捷启动**：双击根目录的 [cf-hub.bat](cf-hub.bat)。默认浏览器会打开看板，启动窗口随即退出。再次双击会复用已经打开的真实看板。由快捷启动创建的看板在最后一个标签页关闭约 5 秒后停止。首次启动优先用 `127.0.0.1:3456`，端口占用时会自动选一个可用的本地端口。
+### 1. 环境要求与本机安装
+
+准备 [Node.js 24 LTS](https://nodejs.org/en/about/previous-releases)（`>= 24.5.0`）和 Git，在工作目录拉取代码并链接全局命令：
+
+```powershell
+# 已配置 GitHub SSH 密钥时用 SSH 克隆
+git clone git@github.com:Djjvcgh/cf-hub.git
+# 或改用 HTTPS
+# git clone https://github.com/Djjvcgh/cf-hub.git
+
+cd cf-hub
+npm install
+npm link
+```
+
+> 如果在支持 `&&` 的终端里，也可以执行 `npm install && npm link`。旧版 PowerShell 不支持 `&&` 时，按上面拆成两行等 `npm install` 完成后再 `npm link`。
+
+安装完成后可以跑两条命令快速确认：
+
+```powershell
+cf-hub --help      # 看到命令用法说明即安装成功
+cf-hub ui --demo   # 用演示数据提前看一眼看板界面（关闭即清除）
+```
+
+### 2. 启动与运行方式
+
+- **Windows 快捷启动**：双击根目录的 [cf-hub.bat](cf-hub.bat)。默认浏览器会打开看板，启动窗口随即退出。再次双击会复用已经打开的真实看板。由快捷启动创建的看板在最后一个标签页关闭约 5 秒后停止。首次启动优先用 `127.0.0.1:3456`，端口占用时会自动选一个可用的本地端口。
+- **终端启动（Windows / macOS / Linux 通用）**：在任意终端运行 `cf-hub ui`，在对应终端按 `Ctrl+C` 退出。
+
+### 3. 升级与卸载
+
+- **升级**：在 `cf-hub` 项目目录执行 `git pull`，然后重新运行 `npm install`（附带的 Wrangler 版本更新时会一并装好）。
+- **卸载**：运行 `npm unlink -g cf-hub` 即可移除全局 `cf-hub` 命令。所有账号和 Token 独立保存在用户目录的 `~/.cf-hub/accounts.json`（仅当前用户可读，不在代码仓库内），卸载后可按需自行保留或删除。
 
 ## 第一次使用
 
@@ -52,20 +84,40 @@
 ## 日常使用指南
 
 - **先看额度再选号**：打开看板后，顶部会自动推荐统计完整且「余量最多」的账号；也可以切换 4 种排序方式快速对比。点任意一行可以在右侧抽屉看全部分项额度、已部署项目链接以及编辑或移除账号。
-- **在任意项目目录执行 Wrangler**：除部署外，`cf-hub run` 同样支持日常维护命令，只需把原命令 `wrangler` 后面的参数放到 `--` 之后：
+
+### Workers / Pages 项目部署流程
+
+1. **选号与身份预检**：先在看板或用 `cf-hub status` 确认目标账号额度充足且具备对应发布权限，再切到你的业务项目目录确认将要操作的账号：
 
 ```powershell
 # 查看本次选中账号的身份（只读）
 cf-hub run '我的 Cloudflare 账号' -- whoami
+```
 
-# Workers 预演打包（只打包校验，不真发布）
+2. **部署 Workers 项目**：建议首次先跑一次 `--dry-run` 检查配置、命名环境和打包输出（不实际发布），确认无误后再正式发布：
+
+```powershell
+# 预演打包（只打包校验，不真发布）
 cf-hub run '我的 Cloudflare 账号' -- deploy --dry-run --outdir ./cf-hub-dry-run
 
-# 部署 Workers 或 Pages
+# 正式发布 Workers（默认环境 / 指定命名环境或配置文件）
 cf-hub run '我的 Cloudflare 账号' -- deploy
-cf-hub run '我的 Cloudflare 账号' -- pages deploy ./dist
+cf-hub run '我的 Cloudflare 账号' -- deploy --env production
+cf-hub run '我的 Cloudflare 账号' -- deploy --config ./wrangler.jsonc
+```
 
-# 其他常见操作（如 D1 迁移、写入 Secret）
+3. **部署 Pages 项目**：先在业务项目里运行前端构建生成静态产物目录（例如 `npm run build` 生成 `./dist`），再发布到目标账号（Pages 通过 `--cwd` 指定项目目录、`--branch` 指定分支，不使用 `--config` 或 `--env`）：
+
+```powershell
+# 发布 Pages 静态产物（可附带项目名和分支）
+cf-hub run '我的 Cloudflare 账号' -- pages deploy ./dist
+cf-hub run '我的 Cloudflare 账号' -- pages deploy ./dist --project-name my-site --branch main
+```
+
+4. **其他日常 Wrangler 维护操作**：除部署外，只需把原命令 `wrangler` 后面的参数放到 `--` 之后：
+
+```powershell
+# D1 数据库迁移、写入 Worker Secret 等
 cf-hub run '我的 Cloudflare 账号' -- d1 migrations apply my-db --remote
 cf-hub run '我的 Cloudflare 账号' -- secret put API_SECRET
 ```
