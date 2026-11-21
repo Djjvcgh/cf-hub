@@ -6,7 +6,11 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-node.exe "%~dp0src\launch-dashboard.js"
-set "CF_HUB_EXIT=%ERRORLEVEL%"
-if not "%CF_HUB_EXIT%"=="0" pause
-exit /b %CF_HUB_EXIT%
+if "%~1"=="" (
+  node.exe "%~dp0src\launch-dashboard.js"
+  set "CF_HUB_EXIT=%ERRORLEVEL%"
+  if not "%CF_HUB_EXIT%"=="0" pause
+  exit /b %CF_HUB_EXIT%
+)
+node.exe "%~dp0bin\cf-hub.js" %*
+exit /b %ERRORLEVEL%

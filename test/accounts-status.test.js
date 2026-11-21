@@ -1,13 +1,17 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, rmdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
+import { promisify } from 'node:util';
 import { createAccountStore, findAccount } from '../src/accounts.js';
 import { createCloudflare, failedStatus } from '../src/cloudflare.js';
 import { demoDashboard, startDashboard } from '../src/dashboard.js';
+import { accountSortScore, pickRoomiestAccount, quotaReport, quotaWindows, summarizeUsage, workersOnlyScope } from '../src/quotas.js';
+
+const exec = promisify(execFile);
 
 const first = { name: '个人 Cloudflare 账号', alias: 'cf-1', accountId: '1'.repeat(32), apiToken: 'private-token-1' };
 const second = { name: '测试账号', alias: 'cf-2', accountId: '2'.repeat(32), apiToken: 'private-token-2' };
@@ -149,7 +153,9 @@ test('status returns zero, pagination and confirmed links independently of faile
   assert.equal(report.accounts[0].usage.quotas.requests.percent, 0.005);
   assert.equal(report.accounts[0].usage.quotas.workersAi.neurons.used, 0);
   assert.equal(report.accounts[0].usage.quotas.r2.storagePeakBytes, null);
-  assert.match(report.accounts[0].errors.find(error => error.section === 'r2Storage').message, /没有 R2 存储样本/);
+  const r2Error = report.accounts[0].errors.find(error => error.section === 'r2Storage');
+  assert.match(r2Error.message, /没有 R2 存储样本/);
+  assert.equal(r2Error.code, 'no_sample');
   assert.equal(report.accounts[1].usage.workers.requests, null);
   assert.equal(report.accounts[1].usage.quotas.workersAi.neurons.used, null);
   assert.ok(report.accounts[1].errors.some(error => error.section === 'workersAi' && error.message === '没有读取权限'));
@@ -336,4 +342,63 @@ test('per-account queries share a time window and return independently', async t
   assert.ok(fast.account.usage.quotas.requests.used > other.account.usage.quotas.requests.used);
   assert.equal((await fetch(url + '/api/status/missing')).status, 404);
   assert.ok(!JSON.stringify(fast).includes('apiToken'));
+});
+
+test('accounts without today R2 storage sample remain complete for recommendation and room sorting', () => {
+  const { month } = quotaWindows(new Date('2026-11-19T05:17:42Z'));
+  const makeReport = (name, { requests = 0, rowsRead = 0, r2Storage = 0, errors = [] }) => ({
+    name,
+    usage: {
+      quotas: quotaReport(month, {
+        workers: { requests, scope: workersOnlyScope },
+        pagesFunctions: 0,
+        d1: { rowsRead, rowsWritten: 0 },
+        kv: { read: 0, write: 0, delete: 0, list: 0 },
+        neurons: 0,
+        r2Operations: { classA: 0, classB: 0, unclassified: 0 },
+        r2Storage,
+      }),
+    },
+    errors,
+  });
+
+  const noR2Sample = makeReport('account-a', {
+    requests: 5_000,
+    r2Storage: null,
+    errors: [{ section: 'r2Storage', message: 'Cloudflare 今天还没有 R2 存储样本。', code: 'no_sample' }],
+  });
+  const complete = makeReport('account-b', { requests: 20_000, r2Storage: 1_000 });
+  const missingD1 = makeReport('account-c', {
+    requests: 0,
+    rowsRead: null,
+    errors: [{ section: 'd1RowsRead', message: 'Token 没有此账号的统计读取权限。' }],
+  });
+  const missingR2Perm = makeReport('account-d', {
+    requests: 0,
+    r2Storage: null,
+    errors: [{ section: 'r2Storage', message: 'Token 没有此账号的统计读取权限。' }],
+  });
+
+  assert.equal(summarizeUsage(noR2Sample).complete, true);
+  assert.equal(summarizeUsage(complete).complete, true);
+  assert.equal(summarizeUsage(missingD1).complete, false);
+  assert.equal(summarizeUsage(missingR2Perm).complete, false);
+
+  assert.deepEqual(pickRoomiestAccount([missingD1, missingR2Perm, complete, noR2Sample]), { name: 'account-a', percent: 5 });
+  assert.equal(pickRoomiestAccount([missingD1, missingR2Perm]), null);
+
+  const sorted = [missingR2Perm, complete, missingD1, noR2Sample]
+    .sort((a, b) => (accountSortScore(a, 'room', new Map()) ?? Infinity) - (accountSortScore(b, 'room', new Map()) ?? Infinity) || a.name.localeCompare(b.name))
+    .map(account => account.name);
+  assert.deepEqual(sorted, ['account-a', 'account-b', 'account-c', 'account-d']);
+});
+
+test('cf-hub.bat forwards arguments to CLI on Windows without launching the dashboard', { skip: process.platform !== 'win32' }, async () => {
+  const cwd = new URL('../', import.meta.url);
+  const { stdout } = await exec('cmd.exe', ['/d', '/c', 'cf-hub.bat', '--help'], { cwd });
+  assert.match(stdout, /用法：cf-hub list \| status/);
+  await assert.rejects(
+    exec('cmd.exe', ['/d', '/c', 'cf-hub.bat', 'run', 'missing account', '--', 'deploy'], { cwd }),
+    error => error.code === 1 && /找不到账号 missing account/.test(error.stderr),
+  );
 });

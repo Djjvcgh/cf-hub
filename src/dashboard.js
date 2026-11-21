@@ -69,7 +69,8 @@ export function demoDashboard() {
     { usage: [30_000, 15_000, 3_050_000, 12_000, [20_000, 120, 3, 10], 500, [52_000, 410_000], 2_100_000_000], workers: ['blog-api', 'comment-worker'], pages: ['blog'] },
     { usage: [8_000, 4_000, 0, 0, [1_200, 30, 0, 2], 0, [930_000, 3_200_000], 8_600_000_000], workers: ['img-upload'], pages: ['img-gallery'] },
     { usage: [21_000, 12_000, 60_000, 800, [5_000, 60, 1, 4], 7_600, [1_000, 8_000], 50_000_000], workers: ['chat-gateway', 'embedding-job'], pages: ['assistant-web'] },
-    { usage: [3_000, 2_000, 9_000, 40, [600, 2, 0, 0], 0, [10, 300], 20_000_000], workers: [], pages: ['client-a-site'] },
+    { usage: [3_000, 2_000, 9_000, 40, [600, 2, 0, 0], 0, [10, 300], null], workers: [], pages: ['client-a-site'],
+      errors: [{ section: 'r2Storage', message: 'Cloudflare 今天还没有 R2 存储样本。', code: 'no_sample' }] },
     { usage: [15_000, 7_000, 400_000, 6_000, [40_000, 710, 20, 30], 300, [2_000, 30_000], 300_000_000], workers: ['mini-api', 'mini-cron', 'mini-push'], pages: [] },
     { usage: [9_000, 6_000, 500_000, 2_000, [8_000, 50, 0, 5], 0, [500, 12_000], 150_000_000], workers: ['report-api'], pages: ['client-c-dash'] },
     { usage: [0, 0, null, null, [0, 0, 0, 0], 0, [0, 0], 0], workers: [], pages: [], errors: ['d1RowsRead', 'd1RowsWritten'] },
@@ -112,7 +113,9 @@ export function demoDashboard() {
             workers: { requests, freeLimit: workersFreeLimit, percent: requests / (workersFreeLimit / 100), scope: workersOnlyScope },
             d1RowsRead: quotas.d1.rowsRead.used, kvReads: quotas.kv.reads.used, quotas,
           },
-          errors: (profile.errors ?? []).map(section => ({ section, message: '演示：缺少 D1 读取权限。' })),
+          errors: (profile.errors ?? []).map(entry => typeof entry === 'string'
+            ? { section: entry, message: '演示：缺少 D1 读取权限。' }
+            : entry),
         };
       }) };
     },

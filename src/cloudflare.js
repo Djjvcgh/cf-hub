@@ -52,9 +52,10 @@ export async function proxyEnvironment(env = process.env) {
 }
 
 class ApiError extends Error {
-  constructor(status, message) {
+  constructor(status, message, code) {
     super(message);
     this.status = status;
+    if (code) this.code = code;
   }
 }
 
@@ -252,7 +253,7 @@ export async function createCloudflare({ transport } = {}) {
   async function r2Storage(account, day) {
     const groups = await analytics(account, day, 'r2StorageAdaptiveGroups',
       'max { payloadSize metadataSize } dimensions { bucketName storageClass }', { limit: 1000 });
-    if (!groups.length) throw new ApiError(404, 'Cloudflare 今天还没有 R2 存储样本。');
+    if (!groups.length) throw new ApiError(404, 'Cloudflare 今天还没有 R2 存储样本。', 'no_sample');
     if (groups.some(row => !['Standard', 'InfrequentAccess'].includes(row?.dimensions?.storageClass))) {
       throw new ApiError(502, 'Cloudflare 未标明部分 R2 存储样本的类型。');
     }
@@ -291,13 +292,13 @@ export async function createCloudflare({ transport } = {}) {
       try {
         return [section, { value: await query }];
       } catch (error) {
-        return [section, { error: error.message }];
+        return [section, { error: error.message, ...(error instanceof ApiError && error.code && { code: error.code }) }];
       }
     })));
     function read(section, { from = section, field } = {}) {
-      const { value, error } = results[from];
+      const { value, error, code } = results[from];
       if (error) {
-        errors.push({ section, message: error });
+        errors.push({ section, message: error, ...(code && { code }) });
         return null;
       }
       if (!field) return value;

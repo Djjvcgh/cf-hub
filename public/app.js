@@ -1,4 +1,4 @@
-import { rankWorkers } from './quotas.js';
+import { accountSortScore, pickRoomiestAccount, rankWorkers, summarizeUsage } from './quotas.js';
 
 const select = selector => document.querySelector(selector);
 const tbody = select('#accounts');
@@ -142,57 +142,6 @@ function percentText(percent) {
   return `${Math.floor(percent)}%`;
 }
 
-function item(label, { used, freeLimit }, error, unit = '') {
-  return { label, used, limit: freeLimit, unit, error, percent: used === null ? null : used / freeLimit * 100 };
-}
-
-// 把一份账号报告整理成五组用量，每组若干项，每项带百分比
-function usageGroups(report) {
-  const { requests, d1, kv, workersAi, r2 } = report.usage.quotas;
-  const errors = Object.fromEntries(report.errors.map(({ section, message }) => [section, message]));
-  const overlap = requests.percent === null && requests.workers !== null && requests.pagesFunctions !== null
-    ? '目前无法确认两项统计是否重叠。' : undefined;
-  const storageGb = r2.storagePeakBytes === null ? null : r2.storagePeakBytes / 1e9;
-  return [
-    { key: 'requests', title: '共享请求', items: [
-      { label: 'Workers + Pages Functions', used: requests.used, limit: requests.freeLimit, unit: '次', percent: requests.percent,
-        error: errors.workersUsage || errors.pagesFunctions || overlap },
-    ], requests, errors },
-    { key: 'd1', title: 'D1', items: [
-      item('读取', d1.rowsRead, errors.d1RowsRead, '行'),
-      item('写入', d1.rowsWritten, errors.d1RowsWritten, '行'),
-    ] },
-    { key: 'kv', title: 'Workers KV', short: 'KV', items: [
-      item('读取', kv.reads, errors.kvReads),
-      item('写入', kv.writes, errors.kvWrites),
-      item('删除', kv.deletes, errors.kvDeletes),
-      item('列表', kv.lists, errors.kvLists),
-    ] },
-    { key: 'ai', title: 'Workers AI', items: [item('Neurons', workersAi.neurons, errors.workersAi)] },
-    { key: 'r2', title: 'R2 Standard', short: 'R2', items: [
-      item('A 类操作', r2.classA, errors.r2Operations),
-      item('B 类操作', r2.classB, errors.r2Operations),
-      { label: '存储峰值', used: storageGb, limit: r2.storageFreeLimitGbMonths, unit: 'GB', error: errors.r2Storage,
-        percent: storageGb === null ? null : storageGb / r2.storageFreeLimitGbMonths * 100 },
-    ], r2 },
-  ];
-}
-
-function worstOf(items) {
-  return items.filter(entry => entry.percent !== null).reduce((top, entry) => (!top || entry.percent > top.percent ? entry : top), null);
-}
-
-function summarize(report) {
-  const groups = usageGroups(report);
-  let worst = null;
-  for (const group of groups) {
-    group.worst = worstOf(group.items);
-    group.partial = group.items.some(entry => entry.percent === null);
-    if (group.worst && (!worst || group.worst.percent > worst.item.percent)) worst = { group, item: group.worst };
-  }
-  return { groups, worst };
-}
-
 function pill(percent, title) {
   const node = element('span', percentText(percent), `pill ${level(percent)}`);
   if (title) node.title = title;
@@ -227,7 +176,7 @@ function renderRow(row) {
     for (const cell of row.cells) cell.replaceChildren(element('span', row.error === undefined ? '…' : '—', 'placeholder'));
     return;
   }
-  const { groups, worst } = summarize(report);
+  const { groups, worst } = summarizeUsage(report);
   row.dot.className = `dot ${level(row.latest ? worst?.item.percent : null)}`;
   groups.forEach((group, index) => {
     const cell = row.cells[index];
@@ -290,7 +239,7 @@ function quotaLine(entry) {
   const value = entry.used === null ? '未知' : `${format(entry.used)} / ${format(entry.limit)}${entry.unit ? ` ${entry.unit}` : ''}`;
   head.append(element('span', entry.label), element('span', value, 'quota-value'), element('strong', entry.percent === null ? '' : percentText(entry.percent), `quota-percent ${level(entry.percent)}`));
   line.append(head, meter(entry.percent));
-  if (entry.error) line.append(element('p', entry.error, 'hint error-hint'));
+  if (entry.error) line.append(element('p', entry.error, entry.noSample ? 'hint' : 'hint error-hint'));
   return line;
 }
 
@@ -312,7 +261,7 @@ function renderDetail() {
   const parts = [];
   const report = row.shown;
   if (report) {
-    const { groups, worst } = summarize(report);
+    const { groups, worst } = summarizeUsage(report);
     const hero = element('section', undefined, 'hero');
     const text = element('div');
     if (worst) {
@@ -381,16 +330,7 @@ function closeDetail() {
 }
 
 function score(row, mode, workerRanks) {
-  const report = row.latest;
-  if (!report) return null;
-  if (mode === 'workers') return workerRanks.get(row.name) ?? null;
-  if (mode === 'shared') return report.usage.quotas.requests.used;
-  const { groups, worst } = summarize(report);
-  const percent = worst?.item.percent ?? null;
-  if (percent === null) return null;
-  if (mode === 'tight') return -percent;
-  // 有未知项的账号排在完整账号之后，避免缺权限显得余量多
-  return groups.some(group => group.partial) ? 1e6 + percent : percent;
+  return accountSortScore(row.latest, mode, workerRanks);
 }
 
 function sortRows() {
@@ -409,15 +349,11 @@ function renderOverview() {
   const list = [...rows.values()];
   if (!list.length) return box.replaceChildren();
   const counts = { high: 0, warn: 0, ok: 0, unknown: 0 };
-  let roomiest = null;
   for (const row of list) {
-    const summary = row.latest ? summarize(row.latest) : null;
-    const worst = summary?.worst;
+    const worst = row.latest ? summarizeUsage(row.latest).worst : null;
     counts[level(worst?.item.percent ?? null)] += 1;
-    // 有未知项的账号不推荐，避免把缺权限误当成余量多
-    const complete = summary && !summary.groups.some(group => group.partial);
-    if (complete && worst && (!roomiest || worst.item.percent < roomiest.percent)) roomiest = { name: row.name, percent: worst.item.percent };
   }
+  const roomiest = pickRoomiestAccount(list.map(row => row.latest));
   const chip = (className, label, value) => {
     const node = element('div', undefined, `chip ${className}`);
     node.append(element('strong', String(value)), element('span', label));
