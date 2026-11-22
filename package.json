@@ -4,6 +4,7 @@
   "private": true,
   "description": "Local Cloudflare account dashboard and Wrangler launcher",
   "type": "module",
+  "license": "MIT",
   "bin": { "cf-hub": "bin/cf-hub.js" },
   "engines": { "node": ">=24.5.0" },
   "scripts": { "test": "node --test" },
